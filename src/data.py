@@ -20,7 +20,7 @@ class SequenceBatch:
 
 @dataclass(frozen=True)
 class TrajectoryBatch:
-    """Unified trajectory batch structure used across baselines and estimators."""
+    """Padded trajectories with valid lengths and optional participant indices."""
 
     X: torch.Tensor  # [B, d_x]
     A: torch.Tensor  # [B, T, d_a] or [B, T] if discrete
@@ -55,9 +55,9 @@ def _as_tensor(x: Any, *, device: Optional[torch.device] = None) -> torch.Tensor
 
 
 class NPZSequenceDataset(Dataset):
-    """Loads a padded dataset from an .npz file.
+    """Padded sequences stored in a NumPy archive.
 
-    Expected keys (minimal):
+    Arrays:
       - X: [N, d_x]
       - A: [N, T, d_a] (float) or [N, T] (int indices)
       - T: [N, T, d_t] (float) or [N, T] (int indices)
@@ -108,7 +108,7 @@ class NPZSequenceDataset(Dataset):
 
 
 class SyntheticEduDataset(Dataset):
-    """A tiny synthetic generator for smoke tests (not for research claims)."""
+    """Generate synthetic sequences for smoke tests."""
 
     def __init__(
         self,
@@ -127,10 +127,13 @@ class SyntheticEduDataset(Dataset):
         self.t_vocab_size = int(t_vocab_size)
 
         self.X = rng.normal(size=(self.n, self.d_x)).astype(np.float32)
-        self.A = rng.integers(low=0, high=self.a_vocab_size, size=(self.n, self.seq_len), dtype=np.int64)
-        self.T = rng.integers(low=0, high=self.t_vocab_size, size=(self.n, self.seq_len), dtype=np.int64)
+        self.A = rng.integers(
+            low=0, high=self.a_vocab_size, size=(self.n, self.seq_len), dtype=np.int64
+        )
+        self.T = rng.integers(
+            low=0, high=self.t_vocab_size, size=(self.n, self.seq_len), dtype=np.int64
+        )
 
-        # A simple outcome mechanism with time trend.
         base = self.X[:, :1] * 0.3 + (self.T[..., None] == 1).astype(np.float32) * 0.2
         trend = np.linspace(-0.2, 0.2, self.seq_len, dtype=np.float32)[None, :, None]
         logits = base[:, None, :] + trend
@@ -160,15 +163,14 @@ class SyntheticEduDataset(Dataset):
 
 
 class IRTSyntheticDataset(Dataset):
-    """IRT-like simulator with evolving latent ability (theta).
+    """Item response simulator with evolving latent ability theta.
 
-    This is a better AIED-style simulator than a plain logistic baseline:
+    Response and latent-state dynamics:
       P(Y_t=1) = sigmoid(theta_t - beta_{A_t} + gamma * 1[T_t == 1])
       theta_{t+1} = theta_t + lr * (Y_t - P(Y_t=1)) + delta * 1[T_t == 1] + noise
 
-    Notes:
-    - Action id 1 is treated as a "help/hint" intervention in the simulator.
-    - `theta` is stored as `self.theta` with shape [N, T+1] for optional evaluation.
+    Action 1 provides a hint. The latent trajectories are stored in `self.theta`
+    with shape [N, T+1].
     """
 
     def __init__(
@@ -203,9 +205,13 @@ class IRTSyntheticDataset(Dataset):
 
         beta = rng.normal(loc=0.0, scale=1.0, size=(self.a_vocab_size,)).astype(np.float32)
         self.beta = beta
-        self.A = rng.integers(low=0, high=self.a_vocab_size, size=(self.n, self.seq_len), dtype=np.int64)
+        self.A = rng.integers(
+            low=0, high=self.a_vocab_size, size=(self.n, self.seq_len), dtype=np.int64
+        )
 
-        theta = (0.6 * self.X[:, 0] + 0.2 * self.X[:, 1] + rng.normal(scale=0.4, size=self.n)).astype(np.float32)
+        theta = (
+            0.6 * self.X[:, 0] + 0.2 * self.X[:, 1] + rng.normal(scale=0.4, size=self.n)
+        ).astype(np.float32)
         theta_seq = np.zeros((self.n, self.seq_len + 1), dtype=np.float32)
         theta_seq[:, 0] = theta
 
@@ -219,12 +225,11 @@ class IRTSyntheticDataset(Dataset):
             a_t = self.A[:, t]
             diff = beta[a_t]
 
-            # Selection bias / confounding: weaker students receive more help (action 1).
+            # Lower latent ability increases the probability of receiving a hint.
             p_help = sigmoid(-confounding * theta)
             if self.t_vocab_size == 2:
                 t_t = rng.binomial(n=1, p=p_help).astype(np.int64)
             else:
-                # Split remaining probability mass across other actions.
                 remaining = 1.0 - p_help
                 p0 = remaining * 0.7
                 p_other = remaining * 0.3
@@ -232,17 +237,24 @@ class IRTSyntheticDataset(Dataset):
                 probs[:, 0] = p0
                 probs[:, 1] = p_help
                 if self.t_vocab_size > 2:
-                    probs[:, 2:] = (p_other[:, None] / max(1, self.t_vocab_size - 2))
+                    probs[:, 2:] = p_other[:, None] / max(1, self.t_vocab_size - 2)
                 probs = probs / probs.sum(axis=1, keepdims=True)
-                t_t = np.array([rng.choice(self.t_vocab_size, p=probs[i]) for i in range(self.n)], dtype=np.int64)
+                t_t = np.array(
+                    [rng.choice(self.t_vocab_size, p=probs[i]) for i in range(self.n)],
+                    dtype=np.int64,
+                )
 
             help_flag = (t_t == 1).astype(np.float32)
             logit = theta - diff + gamma * help_flag
             p = sigmoid(logit)
             y_t = rng.binomial(n=1, p=p).astype(np.float32)
 
-            # Latent update (knowledge evolves).
-            theta = theta + lr * (y_t - p).astype(np.float32) + delta * help_flag + rng.normal(scale=noise_std, size=self.n)
+            theta = (
+                theta
+                + lr * (y_t - p).astype(np.float32)
+                + delta * help_flag
+                + rng.normal(scale=noise_std, size=self.n)
+            )
             theta = theta.astype(np.float32)
 
             self.T[:, t] = t_t
@@ -275,7 +287,15 @@ class IRTSyntheticDataset(Dataset):
 class TrajectoryDataset(Dataset):
     """Dataset wrapper that yields TrajectoryBatch-style samples."""
 
-    def __init__(self, *, X: torch.Tensor, A: torch.Tensor, T: torch.Tensor, Y: torch.Tensor, mask: torch.Tensor):
+    def __init__(
+        self,
+        *,
+        X: torch.Tensor,
+        A: torch.Tensor,
+        T: torch.Tensor,
+        Y: torch.Tensor,
+        mask: torch.Tensor,
+    ):
         if X.ndim != 2:
             raise ValueError(f"X must be [N,d_x], got {tuple(X.shape)}")
         if A.ndim not in (2, 3):

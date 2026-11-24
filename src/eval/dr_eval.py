@@ -9,6 +9,7 @@ import torch
 from src.baselines import BaseSeqModel
 from src.causal_estimators.iptw_msm import IPTWMSM
 from src.data import TrajectoryBatch
+from src.model.causalseqgan import CausalSeqGAN
 from src.policy import Policy, get_default_policies
 
 
@@ -29,7 +30,7 @@ def _predict_factual(
 
     X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
     with torch.no_grad():
-        if model_name.startswith("scm"):
+        if isinstance(model, CausalSeqGAN):
             out = model.teacher_forcing(x=X, a=A, t=T, y=Y, mask=M, eps=None, eps_mode="zero")
             y_prob = torch.sigmoid(out["y_logits"])
         elif model_name == "rcgan":
@@ -42,7 +43,9 @@ def _predict_factual(
             y_prob = torch.sigmoid(out["y_logits"])
         elif model_name == "vae":
             mu, _logvar = model.encode(x=X, a=A, t=T, y=Y, mask=M)
-            out = model.decode(x=X, a=A, t=T, mask=M, z=mu, y=Y, teacher_forcing=True, stochastic_y=False)
+            out = model.decode(
+                x=X, a=A, t=T, mask=M, z=mu, y=Y, teacher_forcing=True, stochastic_y=False
+            )
             y_prob = torch.sigmoid(out["y_logits"])
         elif model_name == "timegan":
             z_dim = int(getattr(getattr(model, "cfg", None), "z_dim", 16))
@@ -55,9 +58,7 @@ def _predict_factual(
     return _squeeze_y(y_prob)[:, : horizon + 1]
 
 
-def _policy_actions(
-    policy: Policy, batch: TrajectoryBatch, *, horizon: int
-) -> torch.Tensor:
+def _policy_actions(policy: Policy, batch: TrajectoryBatch, *, horizon: int) -> torch.Tensor:
     """Return policy actions [B, H+1] using observed history."""
     X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
     bsz, seq_len = T.shape
@@ -136,7 +137,7 @@ def compute_dr_policy_values(
     _ = seed
     device = next(getattr(gen_model, "model").parameters()).device  # type: ignore[call-arg]
     batch = data.to(device)
-    X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
+    _X, _A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
     seq_len = int(T.shape[1])
     horizon = int(min(int(horizon), seq_len - 1))
     end = min(seq_len, horizon + 1)
@@ -196,10 +197,12 @@ def compute_dr_policy_values(
         skip_reason = ""
 
         pi_actions = _policy_actions(policy, batch, horizon=horizon)
-        match = (T[:, :end].long() == pi_actions.long())
+        match = T[:, :end].long() == pi_actions.long()
 
         try:
-            ro = gen_model.rollout(batch, policy=policy, horizon=horizon, t0=0, teacher_forcing=True)
+            ro = gen_model.rollout(
+                batch, policy=policy, horizon=horizon, t0=0, teacher_forcing=True
+            )
             y_policy = _squeeze_y(ro["Y_prob"])[:, :end]
         except Exception as e:
             do_t = _make_do_t(pi_actions)
@@ -242,7 +245,9 @@ def compute_dr_policy_values(
         w_mean = stats.get("w_mean", float("nan"))
         w_max = stats.get("w_max", float("nan"))
         dr_value = float(dm_value + correction)
-        if (not np.isfinite(w_mean)) or (weight_mean_threshold > 0.0 and w_mean > weight_mean_threshold):
+        if (not np.isfinite(w_mean)) or (
+            weight_mean_threshold > 0.0 and w_mean > weight_mean_threshold
+        ):
             supported = 0.0
             skip_reason = "weight_mean_exceeds_threshold"
             dr_value = float("nan")
@@ -270,9 +275,21 @@ def compute_dr_policy_values(
         df_supported = df[df["supported"] == 1.0]
     else:
         df_supported = df
-    dr_vals = df_supported["dr_value"].to_numpy(dtype=np.float64) if "dr_value" in df_supported.columns else np.array([])
-    dm_vals = df_supported["dm_value"].to_numpy(dtype=np.float64) if "dm_value" in df_supported.columns else np.array([])
-    corr_vals = df_supported["correction"].to_numpy(dtype=np.float64) if "correction" in df_supported.columns else np.array([])
+    dr_vals = (
+        df_supported["dr_value"].to_numpy(dtype=np.float64)
+        if "dr_value" in df_supported.columns
+        else np.array([])
+    )
+    dm_vals = (
+        df_supported["dm_value"].to_numpy(dtype=np.float64)
+        if "dm_value" in df_supported.columns
+        else np.array([])
+    )
+    corr_vals = (
+        df_supported["correction"].to_numpy(dtype=np.float64)
+        if "correction" in df_supported.columns
+        else np.array([])
+    )
 
     def _mean(arr: np.ndarray) -> float:
         if arr.size == 0:

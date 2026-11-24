@@ -1,0 +1,37 @@
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e .
+      - name: Check imports and CLI
+        run: |
+          python -m compileall -q src scripts
+          python main.py --help
+          causalseqgan --help
+          python main.py rct --help
+          python scripts/evaluate_multistep.py --help
+          python scripts/build_dkt_table.py --help
+      - name: Test
+        run: python -m unittest discover -s tests -v
+      - name: Train on generated data
+        run: |
+          python scripts/make_irt_semi_synth.py --out data/ci_demo.npz --n 64 --seq_len 6 --hmax 5 --seed 42
+          python main.py --data-npz data/ci_demo.npz --seq_len 6 --epochs_a 1 --epochs_b 0 --epochs_c 0 --batch_size 16 --device cpu --t0_list 0 --do_horizon 5 --no-eval_tstr --no-eval_privacy --no-eval_calibration --no_plot_cf --out_root checkpoints/smoke --results_dir results/smoke --report_path results/smoke/summary.txt
+          python -c "from pathlib import Path; assert Path('results/smoke/factual_auc.csv').is_file()"

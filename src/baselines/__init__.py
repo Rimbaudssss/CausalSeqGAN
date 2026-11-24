@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Optional
 
-import numpy as np
 import torch
 
 from src.data import TrajectoryBatch
 from src.model.baselines import load_rollout_model_from_checkpoint
+from src.model.causalseqgan import CausalSeqGAN
 from src.policy import Policy
 
 
@@ -42,7 +42,9 @@ class TorchSeqModel(BaseSeqModel):
         _ = (train, valid, kwargs)
         raise NotImplementedError("TorchSeqModel is a wrapper for pre-trained models.")
 
-    def _apply_do(self, t_used: torch.Tensor, do_t: dict, *, t0: int, horizon: Optional[int]) -> torch.Tensor:
+    def _apply_do(
+        self, t_used: torch.Tensor, do_t: dict, *, t0: int, horizon: Optional[int]
+    ) -> torch.Tensor:
         seq_len = t_used.shape[1]
         end = seq_len if horizon is None else min(seq_len, int(t0) + int(horizon) + 1)
 
@@ -78,7 +80,7 @@ class TorchSeqModel(BaseSeqModel):
         T = batch.T.to(device)
         mask = batch.mask.to(device)
         seq_len = int(T.shape[1])
-        use_causal_only = self.name.startswith("scm")
+        use_causal_only = isinstance(self.model, CausalSeqGAN)
         end = seq_len if horizon is None else min(seq_len, int(t0) + int(horizon) + 1)
         end = max(0, min(seq_len, int(end)))
         t0 = max(0, min(seq_len, int(t0)))
@@ -251,7 +253,7 @@ class TorchSeqModel(BaseSeqModel):
             t_used = self._apply_do(t_used, do_t, t0=t0, horizon=horizon)
 
         ro_kwargs = dict(x=X, a=A, t_obs=t_used, mask=mask, stochastic_y=False)
-        if self.name.startswith("scm") and do_t is not None:
+        if isinstance(self.model, CausalSeqGAN) and do_t is not None:
             ro_kwargs["causal_only"] = True
         ro = self.model.rollout(**ro_kwargs)  # type: ignore[attr-defined]
         y_prob = ro["y"]

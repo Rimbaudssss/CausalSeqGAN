@@ -54,7 +54,6 @@ def compute_oracle_ite_metrics(
 
     a0, a1 = int(actions[0]), int(actions[1])
     if a0 != 0 or a1 != 1:
-        # Oracle format assumes 2 arms indexed [0,1].
         raise ValueError("oracle y_cf assumes actions=(0,1)")
 
     y_cf = oracle.y_cf
@@ -79,7 +78,6 @@ def compute_oracle_ite_metrics(
         sl = slice(t0, t0 + H + 1)
         m = test_batch.mask[:, sl].to(device).float()
 
-        # Oracle truth (probabilities)
         true0 = torch.as_tensor(y_cf[:, t0, 0, : H + 1], device=device).float()
         true1 = torch.as_tensor(y_cf[:, t0, 1, : H + 1], device=device).float()
         tau_true = true1 - true0  # [B, H+1]
@@ -90,7 +88,9 @@ def compute_oracle_ite_metrics(
             y_sum = torch.zeros((B, H + 1), device=device)
             for r in range(int(max(1, n_gen))):
                 torch.manual_seed(int(seed) + 10007 * r + 13 * t0 + 3 * int(action))
-                ro = gen_model.rollout(test_batch, do_t={t0: int(action)}, horizon=H, t0=t0, teacher_forcing=False)
+                ro = gen_model.rollout(
+                    test_batch, do_t={t0: int(action)}, horizon=H, t0=t0, teacher_forcing=False
+                )
                 y = ro["Y_prob"][:, sl].to(device).float()
                 y_sum += y
                 acc += 1.0
@@ -100,11 +100,9 @@ def compute_oracle_ite_metrics(
         pred1 = predict(a1)
         tau_hat = pred1 - pred0
 
-        # PEHE / ITE-RMSE
         mse_ite = _masked_mean((tau_hat - tau_true) ** 2, m, dim=1).mean().item()
         pehe = float(np.sqrt(max(0.0, mse_ite)))
 
-        # ATE curve and ATE-RMSE across horizon
         ate_true = _masked_mean(tau_true, m, dim=0)
         ate_hat = _masked_mean(tau_hat, m, dim=0)
         ate_rmse = float(torch.sqrt(torch.mean((ate_hat - ate_true) ** 2)).item())
@@ -126,11 +124,20 @@ def compute_oracle_ite_metrics(
 
     if not rows:
         return pd.DataFrame(
-            columns=["model", "dataset", "t0", "horizon", "pehe", "ate_rmse", "ate_mae", "n", "n_gen"]
+            columns=[
+                "model",
+                "dataset",
+                "t0",
+                "horizon",
+                "pehe",
+                "ate_rmse",
+                "ate_mae",
+                "n",
+                "n_gen",
+            ]
         )
 
     df = pd.DataFrame(rows)
-    # Add a summary row per model/dataset (mean over t0)
     summary = {
         "model": model_name,
         "dataset": dataset,
@@ -218,14 +225,20 @@ def compute_oracle_policy_metrics(
         skip_reason = ""
         try:
             torch.manual_seed(int(seed) + 997)
-            ro = gen_model.rollout(test_batch, policy=pol, horizon=horizon, t0=0, teacher_forcing=False)
+            ro = gen_model.rollout(
+                test_batch, policy=pol, horizon=horizon, t0=0, teacher_forcing=False
+            )
             y = ro["Y_prob"][:, sl].to(device).float()
             gen_value = float(_masked_mean(y, m, dim=1).mean().item())
         except NotImplementedError as e:
             supported = False
             skip_reason = str(e)
 
-        abs_error = float(abs(gen_value - oracle_value)) if (supported and np.isfinite(gen_value)) else np.nan
+        abs_error = (
+            float(abs(gen_value - oracle_value))
+            if (supported and np.isfinite(gen_value))
+            else np.nan
+        )
         rows.append(
             {
                 "model": model_name,
@@ -244,7 +257,6 @@ def compute_oracle_policy_metrics(
     if df.empty:
         return df
 
-    # Summary: mean absolute value error and regret error within supported policies.
     df_supported = df[df["supported"] == True].copy()
     if not df_supported.empty:
         oracle_best = float(df_supported["oracle_value"].max())
@@ -316,7 +328,9 @@ def _oracle_skip_frames(
                 }
             )
 
-    policies: list[Policy] = get_default_policies(seq_len, action_space=actions, policy_set=policy_set)
+    policies: list[Policy] = get_default_policies(
+        seq_len, action_space=actions, policy_set=policy_set
+    )
     policy_rows = []
     for pol in policies:
         policy_rows.append(
@@ -356,10 +370,6 @@ def compute_oracle_metrics(
     model_name = getattr(gen_model, "name", "model")
     seq_len = int(data.T.shape[1])
     bsz = int(data.X.shape[0])
-    print(
-        f"[oracle_metrics] start model={model_name} dataset={dataset} "
-        f"batch={bsz} horizon={int(horizon)} t0_list={t0_list} actions={actions} n_gen={int(n_gen)}"
-    )
 
     if oracle_estimator is None or not getattr(oracle_estimator, "is_oracle", False):
         return _oracle_skip_frames(
@@ -433,11 +443,12 @@ def compute_oracle_metrics(
         steps = min(int(horizon), seq_len - t0 - 1)
         H = max(0, int(steps))
         sl = slice(t0, t0 + H + 1)
-        print(f"[oracle_metrics] t0={int(t0)} horizon_eff={int(H)}")
 
         try:
             tau_true_all = oracle_estimator.estimate_tau_per_sample(data, t0=t0, horizon=H)
-            y_true0, m_slice = oracle_estimator.expected_outcomes_do(data, t0=t0, horizon=H, action=a0)
+            y_true0, m_slice = oracle_estimator.expected_outcomes_do(
+                data, t0=t0, horizon=H, action=a0
+            )
             y_true1, _ = oracle_estimator.expected_outcomes_do(data, t0=t0, horizon=H, action=a1)
         except Exception as e:
             for subgroup in subgroup_vals:
@@ -465,19 +476,17 @@ def compute_oracle_metrics(
             continue
 
         def _gen_mean(action: int) -> np.ndarray:
-            print(f"[oracle_metrics]   action={int(action)} rollouts={int(n_gen_eff)}")
             acc = None
-            progress_every = max(1, int(n_gen_eff // 4))
             for r in range(n_gen_eff):
                 torch.manual_seed(int(seed) + 10007 * r + 13 * t0 + 3 * int(action))
-                ro = gen_model.rollout(data, do_t={t0: int(action)}, horizon=H, t0=t0, teacher_forcing=False)
+                ro = gen_model.rollout(
+                    data, do_t={t0: int(action)}, horizon=H, t0=t0, teacher_forcing=False
+                )
                 y = ro["Y_prob"][:, sl].detach().cpu().numpy().astype(np.float32)
                 if acc is None:
                     acc = y
                 else:
                     acc = acc + y
-                if (r + 1) % progress_every == 0 or r == n_gen_eff - 1:
-                    print(f"[oracle_metrics]     rollout {r + 1}/{int(n_gen_eff)} done")
             if acc is None:
                 return np.zeros_like(y_true0)
             return acc / float(n_gen_eff)
@@ -540,15 +549,15 @@ def compute_oracle_metrics(
         ite_rows.append(
             {
                 "model": model_name,
-                    "dataset": dataset,
-                    "t0": int(t0),
-                    "subgroup": name,
-                    "horizon": int(H),
-                    "pehe": pehe,
-                    "ite_rmse": pehe,
-                    "ate_true": ate_true,
-                    "ate_hat": ate_hat,
-                    "ate_abs_error": ate_abs_error,
+                "dataset": dataset,
+                "t0": int(t0),
+                "subgroup": name,
+                "horizon": int(H),
+                "pehe": pehe,
+                "ite_rmse": pehe,
+                "ate_true": ate_true,
+                "ate_hat": ate_hat,
+                "ate_abs_error": ate_abs_error,
                 "ate_rmse": ate_rmse,
                 "n_effective": n_eff,
                 "tau_true_mean": float(np.nanmean(tau_true)),
@@ -575,10 +584,11 @@ def compute_oracle_metrics(
     df_ite = pd.DataFrame(ite_rows)
 
     policy_rows = []
-    policies: list[Policy] = get_default_policies(seq_len, action_space=actions, policy_set=policy_set)
+    policies: list[Policy] = get_default_policies(
+        seq_len, action_space=actions, policy_set=policy_set
+    )
     for pol in policies:
         pol_name = getattr(pol, "name", "policy")
-        print(f"[oracle_metrics] policy_eval policy={pol_name}")
         supported = True
         skip_reason = ""
         try:
@@ -593,17 +603,23 @@ def compute_oracle_metrics(
 
         gen_value = np.nan
         try:
-            ro = gen_model.rollout(data, policy=pol, horizon=int(horizon), t0=0, teacher_forcing=False)
+            ro = gen_model.rollout(
+                data, policy=pol, horizon=int(horizon), t0=0, teacher_forcing=False
+            )
             y = ro["Y_prob"].detach().cpu().numpy()
             m = ro["mask"].detach().cpu().numpy()
             y_slice = y[:, : int(horizon) + 1]
             m_slice = m[:, : int(horizon) + 1]
-            gen_value = float(np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1))))
+            gen_value = float(
+                np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1)))
+            )
         except Exception as e:
             supported = False
             skip_reason = str(e)
 
-        value_abs_error = float(abs(gen_value - oracle_value)) if supported and np.isfinite(gen_value) else np.nan
+        value_abs_error = (
+            float(abs(gen_value - oracle_value)) if supported and np.isfinite(gen_value) else np.nan
+        )
         policy_rows.append(
             {
                 "model": model_name,

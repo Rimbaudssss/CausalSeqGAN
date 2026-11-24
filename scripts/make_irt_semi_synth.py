@@ -1,13 +1,12 @@
 """Generate a semi-synthetic sequential dataset with oracle counterfactuals.
 
-This script outputs an .npz compatible with src.data.NPZSequenceDataset, with optional
-extra keys for oracle evaluation:
+The output .npz includes these oracle arrays:
 
     - Y_cf: [N, T, 2, Hmax+1] float32 oracle outcome probabilities for a single-step do(T_t0=0/1)
     - Y_policy: [N, P, T] float32 oracle outcome probabilities under a small set of open-loop policies
     - policy_names: [P] bytes/strings (stored as dtype='S')
 
-It is intentionally deterministic given --seed.
+Use --seed to reproduce a dataset.
 """
 
 from __future__ import annotations
@@ -24,14 +23,17 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 def build_open_loop_policies(seq_len: int) -> tuple[np.ndarray, np.ndarray]:
     """Return (policy_names, T_policies) where T_policies is [P, T] with {0,1}."""
-    # Names chosen to match src.policy.get_default_policies(..., policy_set='fixed')
-    # (ConstantPolicy + StagePolicy variants).
+    # Policy names match src.policy.get_default_policies.
     t_switch = int(0.2 * seq_len)
     names = [b"never", b"always", b"early_on", b"late_on"]
     never = np.zeros(seq_len, dtype=np.int64)
     always = np.ones(seq_len, dtype=np.int64)
-    early_on = np.concatenate([np.ones(t_switch, dtype=np.int64), np.zeros(seq_len - t_switch, dtype=np.int64)])
-    late_on = np.concatenate([np.zeros(t_switch, dtype=np.int64), np.ones(seq_len - t_switch, dtype=np.int64)])
+    early_on = np.concatenate(
+        [np.ones(t_switch, dtype=np.int64), np.zeros(seq_len - t_switch, dtype=np.int64)]
+    )
+    late_on = np.concatenate(
+        [np.zeros(t_switch, dtype=np.int64), np.ones(seq_len - t_switch, dtype=np.int64)]
+    )
     T = np.stack([never, always, early_on, late_on], axis=0)
     return np.array(names, dtype="S"), T
 
@@ -54,7 +56,9 @@ def simulate_factual(
 
     # Item embeddings represent which skills are tested by each item.
     item_embeddings = rng.normal(0.0, 1.0, size=(a_vocab_size, d_x)).astype(np.float32)
-    item_embeddings = item_embeddings / (np.linalg.norm(item_embeddings, axis=1, keepdims=True) + 1e-6)
+    item_embeddings = item_embeddings / (
+        np.linalg.norm(item_embeddings, axis=1, keepdims=True) + 1e-6
+    )
 
     A = rng.integers(low=0, high=a_vocab_size, size=(n, seq_len), dtype=np.int64)
 
@@ -161,7 +165,9 @@ def build_oracle_counterfactuals(
                 t = t0 + h
                 if t >= seq_len:
                     break
-                help_flag = (np.full(n, a, dtype=np.int64) if h == 0 else T[:, t]).astype(np.float32)
+                help_flag = (np.full(n, a, dtype=np.int64) if h == 0 else T[:, t]).astype(
+                    np.float32
+                )
                 cur_items = item_embeddings[A[:, t]]
                 knowledge_term = (theta * cur_items).sum(axis=1)
                 logits = knowledge_term + gamma * help_flag
@@ -182,11 +188,12 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20000)
     ap.add_argument("--seq_len", type=int, default=50)
     ap.add_argument("--d_x", type=int, default=5)
-    ap.add_argument("--d_k", type=int, default=5, help="Latent ability dimension (overrides d_x if set).")
+    ap.add_argument(
+        "--d_k", type=int, default=5, help="Latent ability dimension (overrides d_x if set)."
+    )
     ap.add_argument("--a_vocab_size", type=int, default=50)
     ap.add_argument("--hmax", type=int, default=10, help="Max horizon for oracle Y_cf")
     ap.add_argument("--seed", type=int, default=0)
-    # DGP parameters
     ap.add_argument("--lr", type=float, default=0.10)
     ap.add_argument("--delta", type=float, default=0.25)
     ap.add_argument("--gamma", type=float, default=0.75)
@@ -214,10 +221,14 @@ def main() -> int:
         confounding=float(args.confounding),
     )
 
-    # Oracle counterfactuals for single-step do at each t0.
-    Y_cf = build_oracle_counterfactuals(sim, hmax=int(args.hmax), lr=float(args.lr), delta=float(args.delta), gamma=float(args.gamma))
+    Y_cf = build_oracle_counterfactuals(
+        sim,
+        hmax=int(args.hmax),
+        lr=float(args.lr),
+        delta=float(args.delta),
+        gamma=float(args.gamma),
+    )
 
-    # Oracle policy trajectories (open-loop fixed policies).
     policy_names, T_policies = build_open_loop_policies(args.seq_len)
     P = int(T_policies.shape[0])
     Y_policy = np.zeros((args.n, P, args.seq_len), dtype=np.float32)

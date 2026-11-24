@@ -24,14 +24,18 @@ def bernoulli_nll_from_logits(
     return masked_mean(loss, mask)
 
 
-def gaussian_mse(mean: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+def gaussian_mse(
+    mean: torch.Tensor, target: torch.Tensor, mask: Optional[torch.Tensor] = None
+) -> torch.Tensor:
     if target.ndim == 2:
         target = target[..., None]
     loss = F.mse_loss(mean, target.float(), reduction="none")
     return masked_mean(loss, mask)
 
 
-def supervisor_mse(k_pred: torch.Tensor, k_true: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+def supervisor_mse(
+    k_pred: torch.Tensor, k_true: torch.Tensor, mask: Optional[torch.Tensor] = None
+) -> torch.Tensor:
     # k_pred/k_true: [B, T, d_k]
     loss = F.mse_loss(k_pred, k_true, reduction="none").mean(dim=-1)  # [B,T]
     return masked_mean(loss, mask)
@@ -80,7 +84,9 @@ def wgan_gp_d_loss(
     return (d_fake.mean() - d_real.mean()) + gp_weight * gp
 
 
-def wgan_g_loss(d_fn, fake_seq: torch.Tensor, *, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+def wgan_g_loss(
+    d_fn, fake_seq: torch.Tensor, *, mask: Optional[torch.Tensor] = None
+) -> torch.Tensor:
     return -d_fn(fake_seq, mask=mask).mean()
 
 
@@ -136,13 +142,17 @@ def treatment_ce_loss(
 ) -> torch.Tensor:
     # logits: [B,T,A], t_true: [B,T]
     bsz, seq_len, num_actions = logits.shape
-    loss = F.cross_entropy(logits.view(bsz * seq_len, num_actions), t_true.view(-1).long(), reduction="none")
+    loss = F.cross_entropy(
+        logits.view(bsz * seq_len, num_actions), t_true.view(-1).long(), reduction="none"
+    )
     loss = loss.view(bsz, seq_len)
     return masked_mean(loss, mask)
 
 
-def policy_moment_loss(y_real: torch.Tensor, y_gen: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-    """Simple per-time mean matching (placeholder for policy simulation consistency)."""
+def policy_moment_loss(
+    y_real: torch.Tensor, y_gen: torch.Tensor, mask: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    """Match mean outcomes at each time step."""
     if y_real.ndim == 2:
         y_real = y_real[..., None]
     if y_gen.ndim == 2:

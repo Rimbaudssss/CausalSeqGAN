@@ -1,0 +1,32 @@
+{
+  "data_path": "data/dkt_synth.npz",
+  "data_sha256": "f42321616e26f02a8c9637f02ea08e38ef5bf1f82539413f561e710fd3c49652",
+  "sequence_length": 30,
+  "steps": [
+    1,
+    5,
+    10,
+    20,
+    30
+  ],
+  "t0s": [
+    0,
+    5,
+    10
+  ],
+  "n_gen": 20,
+  "policy_protocol": "fixed 30-step paths; early-on switch10; late-on switch10; prefixes evaluated without rescaling switch",
+  "policy_prediction": "uniform open-loop intervention interface for all six predictors, including Diffusion",
+  "policy_sampling": "20 Monte Carlo draws by default, with common seed+1000003+10007*r across regimes",
+  "effect_sampling": "original seed+10007*r+13*t0+3*action, with 20 draws by default",
+  "head": "No RCT calibration head is applied; saved longitudinal generator checkpoints are evaluated directly",
+  "effect_estimand": "single-time treatment substitution at t0 followed by factual treatment path; per-person temporal average",
+  "metric_definitions": {
+    "pehe": "RMSE of each student's time-averaged effect",
+    "ate_abs_error": "absolute population time-averaged effect error",
+    "ate_curve_rmse": "RMSE of population effect curve across evaluated steps"
+  },
+  "invalid_steps": "omitted when steps > 30-t0; no silent horizon truncation",
+  "training_performed": false,
+  "device": "cuda"
+}

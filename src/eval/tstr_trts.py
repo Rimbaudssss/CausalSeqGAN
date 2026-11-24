@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import Tuple
-
 from pathlib import Path
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -14,7 +13,6 @@ from sklearn.metrics import roc_auc_score
 
 from src.data import TrajectoryBatch
 from src.metrics.calibration import brier_score, ece_score
-
 
 A_HASH_VOCAB = 4096
 A_EMB_DIM = 16
@@ -89,7 +87,9 @@ def _flatten_batch_logreg(
 
     if A.ndim == 2:
         a_ids = _hash_np(a_flat, a_hash_vocab)
-        a_sparse = sp.csr_matrix((np.ones(n_rows, dtype=np.float32), (rows, a_ids)), shape=(n_rows, a_hash_vocab))
+        a_sparse = sp.csr_matrix(
+            (np.ones(n_rows, dtype=np.float32), (rows, a_ids)), shape=(n_rows, a_hash_vocab)
+        )
         sparse_blocks.append(a_sparse)
 
     if T.ndim == 2:
@@ -97,7 +97,9 @@ def _flatten_batch_logreg(
         t_use_hash = t_vocab > int(t_hash_vocab)
         t_dim = int(t_hash_vocab) if t_use_hash else t_vocab
         t_ids = _hash_np(t_flat, t_dim) if t_use_hash else np.mod(t_flat, t_dim).astype(np.int64)
-        t_sparse = sp.csr_matrix((np.ones(n_rows, dtype=np.float32), (rows, t_ids)), shape=(n_rows, t_dim))
+        t_sparse = sp.csr_matrix(
+            (np.ones(n_rows, dtype=np.float32), (rows, t_ids)), shape=(n_rows, t_dim)
+        )
         sparse_blocks.append(t_sparse)
 
     if sparse_blocks:
@@ -249,7 +251,7 @@ class _SAKT(nn.Module):
         self.out = nn.Linear(d_model, 1)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        bsz, seq_len = x.shape[0], x.shape[1]
+        _bsz, seq_len = x.shape[0], x.shape[1]
         pos = torch.arange(seq_len, device=x.device)
         h = self.inp(x) + self.pos(pos)[None, :, :]
         causal = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
@@ -303,7 +305,9 @@ class _SAKTPredictor(nn.Module):
         d_in = int(d_x) + self.a_dim + self.t_dim + 1
         self.sakt = _SAKT(d_in=d_in, d_model=64, n_heads=4, n_layers=2, seq_len=int(seq_len))
 
-    def _build_inputs(self, x: torch.Tensor, a: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    def _build_inputs(
+        self, x: torch.Tensor, a: torch.Tensor, t: torch.Tensor, y: torch.Tensor
+    ) -> torch.Tensor:
         seq_len = t.shape[1]
         x_rep = x.float()[:, None, :].expand(-1, seq_len, -1)
 
@@ -326,7 +330,9 @@ class _SAKTPredictor(nn.Module):
         y_prev = y_prev.float().unsqueeze(-1)
         return torch.cat([x_rep, a_feat, t_feat, y_prev], dim=-1)
 
-    def forward(self, x: torch.Tensor, a: torch.Tensor, t: torch.Tensor, y: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, a: torch.Tensor, t: torch.Tensor, y: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
         inp = self._build_inputs(x, a, t, y)
         return self.sakt(inp, mask)
 
@@ -509,7 +515,10 @@ def run_tstr_trts(
 
         if predictor == "logreg":
             x_train, y_train = _flatten_batch_logreg(
-                train_batch_sampled, a_hash_vocab=A_HASH_VOCAB, t_vocab=t_vocab, t_hash_vocab=T_HASH_VOCAB
+                train_batch_sampled,
+                a_hash_vocab=A_HASH_VOCAB,
+                t_vocab=t_vocab,
+                t_hash_vocab=T_HASH_VOCAB,
             )
             x_test, y_test = _flatten_batch_logreg(
                 real_test, a_hash_vocab=A_HASH_VOCAB, t_vocab=t_vocab, t_hash_vocab=T_HASH_VOCAB
@@ -533,7 +542,9 @@ def run_tstr_trts(
             calib_dir = Path("results") / "calibration"
             calib_dir.mkdir(parents=True, exist_ok=True)
             calib_path = calib_dir / f"calibration_{gen_model.name}_{predictor}_{setting}.npz"
-            np.savez_compressed(calib_path, y_true=y_test.astype(np.float32), y_prob=y_prob.astype(np.float32))
+            np.savez_compressed(
+                calib_path, y_true=y_test.astype(np.float32), y_prob=y_prob.astype(np.float32)
+            )
         metrics = _compute_metrics(y_test, y_prob)
         rows.append(
             {

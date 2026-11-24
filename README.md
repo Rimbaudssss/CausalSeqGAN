@@ -1,96 +1,155 @@
-# AIED2026: 动态 SCM × 序列生成 × 因果约束（PyTorch 代码骨架）
+# CausalSeqGAN
 
-本仓库提供一个可扩展的最小实现骨架，用于把教育场景的动态 SCM（潜在知识状态 `K_t`）嵌入序列生成训练框架，并暴露 `do(T_t=a)` / `policy(h_t)` 可干预接口，同时加入可写进论文的因果约束损失。
+CausalSeqGAN models treatment-conditioned student outcome trajectories with a
+structural generator and an explicit intervention and policy rollout interface.
+The randomised benchmark additionally fits a population-effect head using
+training participants. `CausalSeqGAN` is the default model for training and
+prediction.
 
-## 目录结构
+The generator predicts outcomes along supplied contexts or items; it does not
+generate future contexts. Longitudinal evaluation uses the generator directly.
+The fitted effect head is used for the single-step randomised benchmark.
 
+## Installation
+
+Use Python 3.10 or later. From the repository root, create a virtual environment:
+
+```sh
+python -m venv .venv
 ```
-src/
-  data.py
-  model/
-    scm_generator.py
-    policy.py
-    discriminators.py
-    losses.py
-  train.py
-  eval/
-    interventional_eval.py
-    policy_sim.py
+
+Activate it with `.venv\Scripts\Activate.ps1` in PowerShell or
+`source .venv/bin/activate` in Bash, then install:
+
+```sh
+python -m pip install -e .
+python main.py --help
 ```
 
-## 数据格式（.npz，最小可行）
+Install a CUDA-enabled PyTorch build when GPU training is needed; CPU execution is supported. The
+automated checks use Python 3.11 on CPU.
 
-`np.savez("data.npz", X=..., A=..., T=..., Y=..., M=...)`
+## Quick start
 
-- `X`: `[N, d_x]` 静态协变量
-- `A`: `[N, T]`（离散 id）或 `[N, T, d_a]`（连续特征）
-- `T`: `[N, T]`（离散动作）或 `[N, T, d_t]`（连续动作）
-- `Y`: `[N, T]` 或 `[N, T, d_y]`（当前默认按二元 `Bernoulli` 训练）
-- `M`: `[N, T]` mask（可选；缺省为全 1）
+Generate a small IRT dataset and run one supervised training epoch:
 
-## 训练（Stage A/B/C）
+```sh
+python scripts/make_irt_semi_synth.py --out data/irt_demo.npz --n 256 --seq_len 12 --hmax 11 --seed 42
+python main.py --data-npz data/irt_demo.npz --seq_len 12 --epochs_a 1 --epochs_b 0 --epochs_c 0 --batch_size 32 --device cpu --no-eval_tstr --no-eval_privacy --no-eval_calibration --no_plot_cf
+```
 
-安装依赖：`pip install -r requirements.txt`
+This example checks the training pipeline; it does not reproduce the DKT-Synth
+benchmark. Full training settings are defined in `src/config.py` and can be
+overridden through the command line. `causalseqgan` is also available as a console
+command after installation.
 
-使用合成数据：
+## Data
 
-- IRT-like（更贴近 AIED；训练脚本会默认开启 `--y_in_dynamics`）：`python -m src.train --out_dir runs/synth1 --synthetic_kind irt`
-- Logistic baseline：`python -m src.train --out_dir runs/synth0 --synthetic_kind logistic`
+Trajectory datasets are NumPy archives with these arrays:
 
-使用真实数据（padded .npz）：
+| Array | Shape | Meaning |
+| --- | --- | --- |
+| `X` | `[N, d_x]` | Static, pre-treatment covariates |
+| `A` | `[N, L]` or `[N, L, d_a]` | Item or context sequence |
+| `T` | `[N, L]` or `[N, L, d_t]` | Treatment sequence |
+| `Y` | `[N, L]` or `[N, L, d_y]` | Binary outcomes |
+| `M` | `[N, L]` | Valid-step mask; defaults to ones when absent |
 
-`python -m src.train --data_npz path/to/data.npz --out_dir runs/exp1`
+Oracle evaluations additionally require `Y_cf`, `Y_policy`, and `policy_names`.
+See [data/README.md](data/README.md) for dataset locations and preparation, and
+`data/checksums.json` for the benchmark file identities. Data, fitted weights,
+and generated results are local assets and are excluded from Git.
 
-训练包含三阶段：
+`scripts/train_dkt_oracle.py` trains the DKT oracle;
+`scripts/make_dkt_synth.py` generates a dataset from its checkpoint. Reproducing
+the reported benchmark requires the matching data and checkpoint files, rather
+than a newly generated dataset with different oracle weights.
 
-- Stage A：监督预训练（`Y` NLL + `K` 的 stepwise supervision）
-- Stage B：加入对抗（`D_seq`，WGAN-GP）并保留监督稳定器
-- Stage C：加入因果约束（`do` 对齐 / 去偏表示 / 反事实一致性）
+## Evaluation
 
-### 模型架构（GRU / Transformer）
+### DKT-Synth
 
-默认 `GRU`（稳定），可切换为因果 Transformer dynamics：
+Evaluate saved checkpoints at multiple lengths without retraining:
 
-`python -m src.train --dynamics transformer --tf_n_layers 2 --tf_n_heads 4 --tf_max_seq_len 512 ...`
+```sh
+python scripts/evaluate_multistep.py --data data/dkt_synth.npz --checkpoint-dir checkpoints/dkt --output results/dkt --device cpu
+python scripts/build_dkt_table.py --results results/dkt
+```
 
-可选：让 `K_{t+1}` 显式依赖 `Y_t`（更接近 DKT 的反馈更新）：
+The evaluation reports PEHE, ATE error, policy-value error, and regret for
+`K = 1, 5, 10, 20, 30` outcomes. Effect errors use each learner's time-averaged
+effect after changing a single treatment, with later factual actions fixed.
+These are distinct from terminal-outcome errors. Policies follow fixed
+Never Treat, Always Treat, Early-on, and Late-on paths. Their switch remains at
+step 10 when shorter prefixes are evaluated; for `K <= 10`, only two prefixes
+are distinct. The RCT effect head is not applied.
 
-`python -m src.train --y_in_dynamics ...`
+The sequence comparators are CRN, TimeGAN, RCGAN, VAE, and Diffusion. Their
+checkpoint names and participant splits are recorded in evaluation manifests.
 
-## 因果约束（训练期）
+### Randomised benchmark
 
-- `do` 对齐：按时间步采样，用 MMD 对齐 `(X, K_t, Y_t)` 的分布（避免二元 `Y` 的“仅均值匹配”退化）；关键参数 `--do_time_sampling {fixed,random,all}`、`--do_num_time_samples`、`--do_actions`。
-- 去偏表示：GRL 让 `K_t` 对 `T_t` 的可预测性降低（意图处理 selection bias；不作用于 `K_{t+1}`，避免抹杀 treatment effect）；关键参数 `--w_advT`、`--grl_lambda`。
-- 反事实一致性：同一 `(X, eps)` 下改变 `T_t`，要求 `K_{0:t}` 不受影响（主要用于约束因果 masking/实现正确性）；关键参数 `--w_cf`、`--cf_num_time_samples`。
+Run the default CausalSeqGAN predictor with its fitted effect estimator:
 
-## 评估
+```sh
+python main.py rct
+```
 
-干预一致性（均值；可选 `--mmd_xy` 输出基于 `(X,Y)` 的分布距离以反映异质性）：
+Refit both components using the fixed participant folds or summarise an existing
+prediction matrix:
 
-`python -m src.eval.interventional_eval --ckpt runs/exp1/ckpt_C_ep2.pt --data_npz path/to/data.npz --mmd_xy`
+```sh
+python main.py rct --fit --device cuda
+python main.py rct --summarize
+```
 
-策略模拟（全局均值）：
+The benchmark configuration is `configs/rct.json`. Local fitted assets are read
+from `checkpoints/rct/`; outputs are written to `results/rct/`. Summary-only
+evaluation requires `results/rct/fold_predictions.csv`, including the saved
+baseline predictions.
 
-`python -m src.eval.policy_sim --ckpt runs/exp1/ckpt_C_ep2.pt --data_npz path/to/data.npz --num_actions 3`
+The 118 tasks belong to 76 experiments and six intervention families. Overall
+metrics average experiments within sources before averaging sources equally;
+RMSE takes the square root within each source. Model seeds share the fixed
+participant folds. Their SD measures variation between model runs, not
+uncertainty over independently redrawn participant splits.
 
-策略模拟 + CATE（按 `X[:,x_index]` 分位分组，对比两条常数策略：treated vs control）：
+The effect head is fitted on training data and forms part of the complete RCT
+estimator. Its comparison with an uncalibrated baseline does not isolate the
+contribution of the neural architecture. RCT policy metrics concern choosing
+between treatment arms; they do not establish longitudinal policy quality.
 
-`python -m src.eval.policy_sim --cate --action_control 0 --action_treated 1 --num_groups 2 --x_index 0 --ckpt runs/exp1/ckpt_C_ep2.pt --data_npz path/to/data.npz`
+## Python API
 
-## 代码要点（对应论文可写点）
+```python
+from src.model import CausalSeqGAN, CausalSeqGANConfig
 
-- `src/model/scm_generator.py`: `rollout()`（支持 `do_t` / `policy` / `eps` 控制），并提供 `dynamics="transformer"` 的 masked self-attention 版本
-- `src/model/discriminators.py`: `D_seq`（整段轨迹判别，WGAN-GP）
-- `src/model/losses.py`: `L_sup`（TimeGAN-style stepwise）+ `MMD`（do 对齐）+ `GRL`（去偏表示）
-- `src/train.py`: Stage A/B/C 训练编排、时间步采样的 `do` 对齐、反事实一致性损失
+model = CausalSeqGAN(CausalSeqGANConfig(d_x=8, a_vocab_size=50, t_vocab_size=2))
+```
 
-## 统一入口（SCM + baselines）
+The model supports factual and intervention rollouts, fitted effect prediction,
+and checkpoint save/load. See the configuration and method signatures in
+`src/model/causalseqgan.py` and `src/model/effect_head.py`.
 
-新增统一入口脚本：`python -m src.main`，默认读取 `src/main.py` 顶部的配置区（`DATASET_PATHS / ACTIVE_DATASETS / ACTIVE_MODELS`），自动循环训练 + 评估，并输出 `results_summary.txt`：
+## Repository layout
 
-`python -m src.main [--datasets assist09,statics] [--models scm,crn] [--out_root runs/exp_runner] [--report_path results_summary.txt]`
+```text
+src/          model, training, data, baselines, and evaluation
+scripts/      data preparation and benchmark commands
+configs/      fixed benchmark configuration
+data/         dataset instructions and checksums; local data are ignored
+checkpoints/  local fitted weights and effect-head states
+results/      generated predictions, metrics, and tables
+tests/        model and evaluation checks
+```
 
-- GAN：`scm` / `rcgan`（WGAN-GP + supervised term）
-- 非对抗：`vae`（ELBO）、`diffusion`（denoising MSE）、`crn`（预测损失 + GRL 去偏）
+Run the checks with:
 
-评估脚本（`src/eval/interventional_eval.py`, `src/eval/policy_sim.py`）已支持读取 `src/train.py` 产生的旧版 SCM checkpoint 和 `src/main.py` 产生的统一 checkpoint。
+```sh
+python -m unittest discover -s tests -v
+```
+
+## License
+
+The code is distributed under the [MIT License](LICENSE). Dataset access,
+redistribution, and use remain subject to the respective data providers' terms.

@@ -51,7 +51,9 @@ def _compute_cf_history_mse(
         t = int(t)
         if t < 0 or t >= seq_len:
             continue
-        eps = torch.as_tensor(rng.standard_normal(size=(bsz, seq_len, model.cfg.d_eps)), device=device).float()
+        eps = torch.as_tensor(
+            rng.standard_normal(size=(bsz, seq_len, model.cfg.d_eps)), device=device
+        ).float()
         do_a = {t: torch.full((bsz,), int(action_a), device=device, dtype=batch.T.dtype)}
         do_b = {t: torch.full((bsz,), int(action_b), device=device, dtype=batch.T.dtype)}
 
@@ -82,7 +84,9 @@ def _compute_cf_history_mse(
             k_a = ro_a["k"][:, : t + 1, :]
             k_b = ro_b["k"][:, : t + 1, :]
         else:
-            raise RuntimeError("rollout() did not return latent K/K_c; counterfactual consistency requires K.")
+            raise RuntimeError(
+                "rollout() did not return latent K/K_c; counterfactual consistency requires K."
+            )
         diff_sq = (k_a - k_b).pow(2).mean(dim=-1)
         mask_k = torch.cat([torch.ones(bsz, 1, device=device), batch.mask[:, :t]], dim=1)
         mse = (diff_sq * mask_k).sum() / mask_k.sum().clamp(min=1.0)
@@ -142,7 +146,6 @@ def _select_student_idx(
         rng = np.random.default_rng(int(seed))
         return int(rng.integers(low=0, high=int(batch.X.shape[0])))
 
-    # default: max divergence between do(T=a) and do(T=b)
     model.eval()
     device = next(model.parameters()).device
     batch = batch.to(device)
@@ -150,7 +153,9 @@ def _select_student_idx(
     steps = min(int(plot_horizon) + 1, int(seq_len))
     t_intervention = max(0, min(int(t_intervention), steps - 1))
     rng = np.random.default_rng(int(seed))
-    eps = torch.as_tensor(rng.standard_normal(size=(bsz, steps, model.cfg.d_eps)), device=device).float()
+    eps = torch.as_tensor(
+        rng.standard_normal(size=(bsz, steps, model.cfg.d_eps)), device=device
+    ).float()
 
     do_a = {t_intervention: torch.full((bsz,), int(action_a), device=device, dtype=batch.T.dtype)}
     do_b = {t_intervention: torch.full((bsz,), int(action_b), device=device, dtype=batch.T.dtype)}
@@ -198,7 +203,9 @@ def _select_student_idx(
         k_a = ro_a[k_key]
         k_b = ro_b[k_key]
         delta_k = (k_a - k_b).norm(dim=-1)
-        mask_k = torch.cat([torch.ones(bsz, 1, device=device), batch.mask[:, :steps].float()], dim=1)
+        mask_k = torch.cat(
+            [torch.ones(bsz, 1, device=device), batch.mask[:, :steps].float()], dim=1
+        )
         post_mask_k = torch.zeros_like(mask_k)
         if t_intervention + 1 < mask_k.shape[1]:
             post_mask_k[:, t_intervention + 1 :] = 1.0
@@ -210,7 +217,6 @@ def _select_student_idx(
     elif select == "max_delta_y":
         score = score_y if score_y is not None else score_k
     else:
-        # max_delta / max_delta_combined
         if score_y is None:
             score = score_k
         elif score_k is None:
@@ -266,7 +272,9 @@ def _rollout_do_pair(
     eps = None
     if hasattr(model, "cfg") and hasattr(model.cfg, "d_eps"):
         rng = np.random.default_rng(int(seed))
-        eps = torch.as_tensor(rng.standard_normal(size=(X.shape[0], steps, model.cfg.d_eps)), device=device).float()
+        eps = torch.as_tensor(
+            rng.standard_normal(size=(X.shape[0], steps, model.cfg.d_eps)), device=device
+        ).float()
     do_a = {t_intervention: torch.tensor([int(action_a)], device=device, dtype=T_obs.dtype)}
     do_b = {t_intervention: torch.tensor([int(action_b)], device=device, dtype=T_obs.dtype)}
     ro_a = model.rollout(
@@ -304,8 +312,12 @@ def _rollout_do_pair_wrapper(
 ) -> tuple[dict, dict]:
     do_a = {int(t_intervention): int(action_a)}
     do_b = {int(t_intervention): int(action_b)}
-    ro_a = model.rollout(batch, do_t=do_a, t0=0, horizon=None, teacher_forcing=False, return_logits=False)
-    ro_b = model.rollout(batch, do_t=do_b, t0=0, horizon=None, teacher_forcing=False, return_logits=False)
+    ro_a = model.rollout(
+        batch, do_t=do_a, t0=0, horizon=None, teacher_forcing=False, return_logits=False
+    )
+    ro_b = model.rollout(
+        batch, do_t=do_b, t0=0, horizon=None, teacher_forcing=False, return_logits=False
+    )
     return ro_a, ro_b
 
 
@@ -392,7 +404,14 @@ def plot_bifurcation_multi(
             color = f"C{idx % 10}"
             times = np.arange(len(y_a))
             ax_y.plot(times, y_a, color=color, linewidth=2, label=f"{label}: do={action_a}")
-            ax_y.plot(times, y_b, color=color, linestyle="--", linewidth=2, label=f"{label}: do={action_b}")
+            ax_y.plot(
+                times,
+                y_b,
+                color=color,
+                linestyle="--",
+                linewidth=2,
+                label=f"{label}: do={action_b}",
+            )
             plotted += 1
 
             data[f"y_a_{label}"] = y_a
@@ -418,7 +437,14 @@ def plot_bifurcation_multi(
                 z_b = np.linalg.norm(k_b, axis=-1)
                 times_k = np.arange(z_a.shape[0])
                 ax_k.plot(times_k, z_a, color=color, linewidth=2, label=f"{label}: do={action_a}")
-                ax_k.plot(times_k, z_b, color=color, linestyle="--", linewidth=2, label=f"{label}: do={action_b}")
+                ax_k.plot(
+                    times_k,
+                    z_b,
+                    color=color,
+                    linestyle="--",
+                    linewidth=2,
+                    label=f"{label}: do={action_b}",
+                )
                 any_k = True
                 data[f"k_a_{label}"] = k_a
                 data[f"k_b_{label}"] = k_b
@@ -443,7 +469,9 @@ def plot_bifurcation_multi(
         ax_k.legend(ncol=2, fontsize=8)
         ax_k.grid(True, alpha=0.3)
     else:
-        ax_k.text(0.5, 0.5, "No latent K available", ha="center", va="center", transform=ax_k.transAxes)
+        ax_k.text(
+            0.5, 0.5, "No latent K available", ha="center", va="center", transform=ax_k.transAxes
+        )
         ax_k.grid(True, alpha=0.3)
 
     fig.suptitle("Counterfactual Bifurcation (Same Student, Multi-Model)")
@@ -510,7 +538,9 @@ def plot_counterfactual_bifurcation(
     steps = min(seq_len, int(plot_horizon) + 1)
     t_intervention = min(int(t_intervention), steps - 1)
     rng = np.random.default_rng(int(seed))
-    eps = torch.as_tensor(rng.standard_normal(size=(1, steps, model.cfg.d_eps)), device=device).float()
+    eps = torch.as_tensor(
+        rng.standard_normal(size=(1, steps, model.cfg.d_eps)), device=device
+    ).float()
 
     do_a = {t_intervention: torch.tensor([int(action_a)], device=device, dtype=T_obs.dtype)}
     ro_a = model.rollout(
@@ -565,8 +595,20 @@ def plot_counterfactual_bifurcation(
     times_y = np.arange(len(y_a))
     hist_end = t_intervention + 1
     ax_y.plot(times_y[:hist_end], y_a[:hist_end], "k-", linewidth=2, label="Historical Path")
-    ax_y.plot(times_y[t_intervention:], y_a[t_intervention:], "b--", linewidth=2, label=f"Do(T={action_a})")
-    ax_y.plot(times_y[t_intervention:], y_b[t_intervention:], "r--", linewidth=2, label=f"Do(T={action_b})")
+    ax_y.plot(
+        times_y[t_intervention:],
+        y_a[t_intervention:],
+        "b--",
+        linewidth=2,
+        label=f"Do(T={action_a})",
+    )
+    ax_y.plot(
+        times_y[t_intervention:],
+        y_b[t_intervention:],
+        "r--",
+        linewidth=2,
+        label=f"Do(T={action_b})",
+    )
     ax_y.set_ylabel("Predicted Y")
     ax_y.axvline(x=t_intervention, color="gray", linestyle=":", label="Intervention Time")
     ax_y.legend()
@@ -574,8 +616,20 @@ def plot_counterfactual_bifurcation(
 
     times_k = np.arange(z_a.shape[0])
     ax_k.plot(times_k[:hist_end], z_a[:hist_end], "k-", linewidth=2, label="Historical Path")
-    ax_k.plot(times_k[t_intervention + 1 :], z_a[t_intervention + 1 :], "b--", linewidth=2, label=f"Do(T={action_a})")
-    ax_k.plot(times_k[t_intervention + 1 :], z_b[t_intervention + 1 :], "r--", linewidth=2, label=f"Do(T={action_b})")
+    ax_k.plot(
+        times_k[t_intervention + 1 :],
+        z_a[t_intervention + 1 :],
+        "b--",
+        linewidth=2,
+        label=f"Do(T={action_a})",
+    )
+    ax_k.plot(
+        times_k[t_intervention + 1 :],
+        z_b[t_intervention + 1 :],
+        "r--",
+        linewidth=2,
+        label=f"Do(T={action_b})",
+    )
     ax_k.set_ylabel(f"Latent {k_label} ({k_metric})")
     ax_k.axvline(x=t_intervention, color="gray", linestyle=":")
     ax_k.legend()
@@ -622,14 +676,26 @@ def main() -> int:
     ap.add_argument("--plot", action="store_true", default=True)
     ap.add_argument("--plot_t", type=int, default=10)
     ap.add_argument("--plot_horizon", type=int, default=20)
-    ap.add_argument("--plot_metric", type=str, default="k_mean", choices=["k_norm", "k_mean", "k_pca", "y_prob"])
+    ap.add_argument(
+        "--plot_metric", type=str, default="k_mean", choices=["k_norm", "k_mean", "k_pca", "y_prob"]
+    )
     ap.add_argument("--plot_out", type=str, default=None)
     ap.add_argument("--plot_data_out", type=str, default=None)
     ap.add_argument(
         "--student_select",
         type=str,
         default="max_delta",
-        choices=["max_delta", "max_delta_y", "max_delta_k", "max_delta_combined", "median", "best", "worst", "random", "first"],
+        choices=[
+            "max_delta",
+            "max_delta_y",
+            "max_delta_k",
+            "max_delta_combined",
+            "median",
+            "best",
+            "worst",
+            "random",
+            "first",
+        ],
     )
     ap.add_argument("--causal_only", action="store_true", default=True)
     ap.add_argument("--out_csv", type=str, default=None)
@@ -640,7 +706,9 @@ def main() -> int:
     model, model_name = load_rollout_model_from_checkpoint(ckpt, device=device)
 
     if not hasattr(model, "cfg") or not hasattr(model.cfg, "d_eps"):
-        raise RuntimeError(f"Model {model_name} does not expose cfg.d_eps for fixed-noise rollouts.")
+        raise RuntimeError(
+            f"Model {model_name} does not expose cfg.d_eps for fixed-noise rollouts."
+        )
 
     ds = NPZSequenceDataset(args.data)
     rng = np.random.default_rng(int(args.seed))

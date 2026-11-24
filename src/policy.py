@@ -72,7 +72,7 @@ class StagePolicy(Policy):
 
 @dataclass(frozen=True)
 class HistoryThresholdPolicy(Policy):
-    """Experimental policy depending on history (for ablation only)."""
+    """Choose an action by thresholding the recent mean outcome."""
 
     window: int
     threshold: float
@@ -108,7 +108,11 @@ class HistoryThresholdPolicy(Policy):
             avg = (y_slice.float() * m_slice).sum(dim=1) / denom
 
         take_high = avg >= float(self.threshold)
-        action = torch.where(take_high, torch.full_like(avg, float(self.a_high)), torch.full_like(avg, float(self.a_low)))
+        action = torch.where(
+            take_high,
+            torch.full_like(avg, float(self.a_high)),
+            torch.full_like(avg, float(self.a_low)),
+        )
         return action.long()
 
 
@@ -138,8 +142,10 @@ class PeriodicPolicy(Policy):
         return torch.full((X.shape[0],), int(action), device=X.device, dtype=torch.long)
 
 
-def get_default_policies(T: int, action_space: list[int], *, policy_set: str = "fixed") -> list[Policy]:
-    """Return fixed, interpretable policies only (no history dependence by default)."""
+def get_default_policies(
+    T: int, action_space: list[int], *, policy_set: str = "fixed"
+) -> list[Policy]:
+    """Return the fixed policies and any additional ablation policies."""
     actions = [int(a) for a in action_space] if action_space else [0, 1]
     actions = sorted(set(actions)) if actions else [0, 1]
     if len(actions) == 1:
@@ -160,17 +166,37 @@ def get_default_policies(T: int, action_space: list[int], *, policy_set: str = "
     policies: list[Policy] = [
         ConstantPolicy(action=action_off, name="never"),
         ConstantPolicy(action=action_on, name="always"),
-        StagePolicy(t_switch=early_switch, a_before=action_on, a_after=action_off, T=seq_len, name="early_on"),
-        StagePolicy(t_switch=late_switch, a_before=action_off, a_after=action_on, T=seq_len, name="late_on"),
+        StagePolicy(
+            t_switch=early_switch,
+            a_before=action_on,
+            a_after=action_off,
+            T=seq_len,
+            name="early_on",
+        ),
+        StagePolicy(
+            t_switch=late_switch, a_before=action_off, a_after=action_on, T=seq_len, name="late_on"
+        ),
     ]
 
     if policy_set == "ablation":
         period = max(2, int(round(0.2 * seq_len)))
         policies.append(
-            PeriodicPolicy(period=period, on_steps=1, action_on=action_on, action_off=action_off, name="periodic")
+            PeriodicPolicy(
+                period=period,
+                on_steps=1,
+                action_on=action_on,
+                action_off=action_off,
+                name="periodic",
+            )
         )
         policies.append(
-            HistoryThresholdPolicy(window=5, threshold=0.5, a_high=action_on, a_low=action_off, name="history_threshold")
+            HistoryThresholdPolicy(
+                window=5,
+                threshold=0.5,
+                a_high=action_on,
+                a_low=action_off,
+                name="history_threshold",
+            )
         )
     elif policy_set != "fixed":
         raise ValueError(f"Unknown policy_set={policy_set}")
@@ -179,5 +205,5 @@ def get_default_policies(T: int, action_space: list[int], *, policy_set: str = "
 
 
 def default_policy_set() -> list[Policy]:
-    """Deprecated alias for backward compatibility."""
+    """Return the fixed binary policies for a 50-step sequence."""
     return get_default_policies(50, [0, 1], policy_set="fixed")

@@ -63,7 +63,9 @@ def _embed(batch: TrajectoryBatch, *, embed_space: str = "y_only") -> np.ndarray
             if L > 0:
                 y_lastk[i, 0] = float(np.mean(Y[i, start:L]))
 
-        return np.concatenate([y_mean, y_std, y_last, y_lastk, y_ac1, lengths], axis=1).astype(np.float32)
+        return np.concatenate([y_mean, y_std, y_last, y_lastk, y_ac1, lengths], axis=1).astype(
+            np.float32
+        )
 
     if A.ndim == 2:
         a_feat = (A * M).sum(axis=1, keepdims=True) / denom
@@ -136,7 +138,7 @@ def compute_nn_distance(
     rows = []
     for i in range(synth_emb.shape[0]):
         diff = real_emb - synth_emb[i][None, :]
-        dist = np.sqrt(np.sum(diff ** 2, axis=1))
+        dist = np.sqrt(np.sum(diff**2, axis=1))
         j = int(np.argmin(dist))
         rows.append(
             {

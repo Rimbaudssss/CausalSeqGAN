@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Optional
 
 import torch
 
@@ -20,7 +20,6 @@ class NaNDebugger:
         self.log_path = Path(log_path)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.cfg = cfg or NaNDebugConfig()
-        # Ensure the log file exists even if no NaNs are found.
         if not self.log_path.exists():
             self._log("[nan_debug] initialized")
 

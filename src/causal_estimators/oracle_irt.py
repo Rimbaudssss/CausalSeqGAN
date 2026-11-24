@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional
 import zlib
+from typing import Optional
 
 import numpy as np
 import torch
@@ -68,7 +68,9 @@ class OracleIRT(CausalEstimator):
         self.return_prob = bool(return_prob)
         self.debug = bool(debug)
 
-    def fit(self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs) -> None:
+    def fit(
+        self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs
+    ) -> None:
         _ = (train, valid, kwargs)
         return None
 
@@ -93,7 +95,9 @@ class OracleIRT(CausalEstimator):
         denom = np.where(denom == 0.0, np.nan, denom)
         return (y * m).sum(axis=axis) / denom
 
-    def _rng_for(self, *, k: int, t0: Optional[int], horizon: Optional[int], policy: Optional[Policy]) -> np.random.Generator:
+    def _rng_for(
+        self, *, k: int, t0: Optional[int], horizon: Optional[int], policy: Optional[Policy]
+    ) -> np.random.Generator:
         seed = int(self.mc_seed)
         if t0 is not None:
             seed += 1009 * int(t0)
@@ -446,11 +450,14 @@ class PrecomputedOracleEstimator:
             self.policy_map = {}
         else:
             self.policy_names = [
-                n.decode("utf-8") if isinstance(n, (bytes, bytearray)) else str(n) for n in policy_names
+                n.decode("utf-8") if isinstance(n, (bytes, bytearray)) else str(n)
+                for n in policy_names
             ]
             self.policy_map = {name: i for i, name in enumerate(self.policy_names)}
 
-    def fit(self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs) -> None:
+    def fit(
+        self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs
+    ) -> None:
         _ = (train, valid, kwargs)
         return None
 
@@ -466,7 +473,9 @@ class PrecomputedOracleEstimator:
             raise ValueError("Oracle ids exceed dataset size.")
         return ids
 
-    def estimate_tau_per_sample(self, batch: TrajectoryBatch, *, t0: int, horizon: int) -> np.ndarray:
+    def estimate_tau_per_sample(
+        self, batch: TrajectoryBatch, *, t0: int, horizon: int
+    ) -> np.ndarray:
         ids = self._resolve_ids(batch)
         t0 = int(t0)
         H = min(int(horizon), self.hmax)
@@ -494,7 +503,9 @@ class PrecomputedOracleEstimator:
         m_slice = batch.mask.detach().cpu().numpy().astype(np.float32)[:, t0 : t0 + H + 1]
         return y_slice, m_slice
 
-    def estimate_policy_value(self, batch: TrajectoryBatch, *, policy: Policy, horizon: int, **kwargs) -> dict:
+    def estimate_policy_value(
+        self, batch: TrajectoryBatch, *, policy: Policy, horizon: int, **kwargs
+    ) -> dict:
         _ = kwargs
         ids = self._resolve_ids(batch)
         pol_name = getattr(policy, "name", str(policy))

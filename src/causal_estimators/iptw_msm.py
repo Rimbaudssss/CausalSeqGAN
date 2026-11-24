@@ -25,14 +25,20 @@ class _PropensityGRU(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         lengths = compute_lengths(mask).cpu()
-        packed = nn.utils.rnn.pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            x, lengths, batch_first=True, enforce_sorted=False
+        )
         out_packed, _ = self.rnn(packed)
-        out, _ = nn.utils.rnn.pad_packed_sequence(out_packed, batch_first=True, total_length=x.shape[1])
+        out, _ = nn.utils.rnn.pad_packed_sequence(
+            out_packed, batch_first=True, total_length=x.shape[1]
+        )
         return self.out(out)
 
 
 class _BaselinePropensity(nn.Module):
-    def __init__(self, d_x: int, num_actions: int, seq_len: int, d_h: int = 64, dropout: float = 0.1):
+    def __init__(
+        self, d_x: int, num_actions: int, seq_len: int, d_h: int = 64, dropout: float = 0.1
+    ):
         super().__init__()
         self.time_emb = nn.Embedding(int(seq_len), d_h)
         self.net = nn.Sequential(
@@ -107,7 +113,9 @@ class IPTWMSM(CausalEstimator):
 
         t_prev = torch.zeros_like(batch.T)
         t_prev[:, 1:] = batch.T[:, :-1]
-        t_vocab = int(self.num_actions) if self.num_actions is not None else int(batch.T.max().item() + 1)
+        t_vocab = (
+            int(self.num_actions) if self.num_actions is not None else int(batch.T.max().item() + 1)
+        )
         t_onehot = torch.zeros(bsz, seq_len, t_vocab, device=batch.T.device)
         t_onehot.scatter_(2, t_prev.long().unsqueeze(-1), 1.0)
 
@@ -117,7 +125,9 @@ class IPTWMSM(CausalEstimator):
 
         return torch.cat([x_rep, a_feat, t_onehot, y_prev], dim=-1)
 
-    def fit(self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs) -> None:
+    def fit(
+        self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs
+    ) -> None:
         _ = valid
         cfg = self.cfg
         d_x, seq_len, num_actions = self._infer_dims(train)
@@ -132,7 +142,9 @@ class IPTWMSM(CausalEstimator):
         inp = self._encode_inputs(train.to(device))
         d_in = int(inp.shape[-1])
 
-        self.propensity = _PropensityGRU(d_in=d_in, d_h=cfg.hidden, num_actions=num_actions, dropout=cfg.dropout).to(device)
+        self.propensity = _PropensityGRU(
+            d_in=d_in, d_h=cfg.hidden, num_actions=num_actions, dropout=cfg.dropout
+        ).to(device)
         self.baseline_propensity = _BaselinePropensity(
             d_x=d_x, num_actions=num_actions, seq_len=seq_len, d_h=cfg.hidden, dropout=cfg.dropout
         ).to(device)
@@ -170,9 +182,9 @@ class IPTWMSM(CausalEstimator):
 
                 t_idx = torch.arange(seq_len, device=device).view(1, seq_len).expand(bsz, seq_len)
                 x_rep = batch.X.float()[:, None, :].expand(bsz, seq_len, d_x)
-                base_logits = self.baseline_propensity(x_rep.reshape(-1, d_x), t_idx.reshape(-1)).view(
-                    bsz, seq_len, num_actions
-                )
+                base_logits = self.baseline_propensity(
+                    x_rep.reshape(-1, d_x), t_idx.reshape(-1)
+                ).view(bsz, seq_len, num_actions)
                 loss_base = nn.CrossEntropyLoss(reduction="none")(
                     base_logits.view(bsz * seq_len, num_actions), batch.T.view(-1).long()
                 )
@@ -195,9 +207,9 @@ class IPTWMSM(CausalEstimator):
                 d_x = int(batch.X.shape[1])
                 t_idx = torch.arange(seq_len, device=device).view(1, -1).expand(bsz, -1)
                 x_rep = batch.X.float()[:, None, :].expand(bsz, seq_len, d_x)
-                base_logits = self.baseline_propensity(x_rep.reshape(-1, d_x), t_idx.reshape(-1)).view(
-                    bsz, seq_len, -1
-                )
+                base_logits = self.baseline_propensity(
+                    x_rep.reshape(-1, d_x), t_idx.reshape(-1)
+                ).view(bsz, seq_len, -1)
                 logp_num = torch.log_softmax(base_logits, dim=-1)
             else:
                 logp_num = torch.zeros_like(logp_den)
@@ -212,7 +224,9 @@ class IPTWMSM(CausalEstimator):
         _, logp_den = self._compute_log_probs(data)
         return logp_den
 
-    def _weights_up_to(self, logp_num: np.ndarray, logp_den: np.ndarray, mask: np.ndarray, t_end: int) -> np.ndarray:
+    def _weights_up_to(
+        self, logp_num: np.ndarray, logp_den: np.ndarray, mask: np.ndarray, t_end: int
+    ) -> np.ndarray:
         t_end = int(t_end)
         seq_len = logp_num.shape[1]
         t_end = min(t_end, seq_len - 1)

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from src.causal_estimators.base import CausalEstimator, _bootstrap_ci
-from src.data import TrajectoryBatch, compute_lengths
+from src.data import TrajectoryBatch
 from src.policy import Policy
 
 
@@ -44,7 +44,9 @@ class _FitConfig:
 class GFormula(CausalEstimator):
     name = "gformula"
 
-    def __init__(self, *, outcome_model: str = "mlp", state_update: str = "autoregressive", **kwargs):
+    def __init__(
+        self, *, outcome_model: str = "mlp", state_update: str = "autoregressive", **kwargs
+    ):
         self.cfg = _FitConfig(outcome_model=outcome_model, state_update=state_update, **kwargs)
         self.model: Optional[_OutcomeRNN] = None
         self.num_actions: Optional[int] = None
@@ -75,7 +77,9 @@ class GFormula(CausalEstimator):
         t_onehot.scatter_(2, T.long().unsqueeze(-1), 1.0)
         return t_onehot
 
-    def fit(self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs) -> None:
+    def fit(
+        self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs
+    ) -> None:
         _ = (valid, kwargs)
         cfg = self.cfg
         d_x, seq_len, num_actions = self._infer_dims(train)
@@ -118,7 +122,9 @@ class GFormula(CausalEstimator):
                 y_logit = y_logit.view(-1)
                 y_true = Y[:, t].float()
                 m = M[:, t].float()
-                loss = nn.functional.binary_cross_entropy_with_logits(y_logit, y_true, reduction="none")
+                loss = nn.functional.binary_cross_entropy_with_logits(
+                    y_logit, y_true, reduction="none"
+                )
                 loss = (loss * m).sum() / m.sum().clamp(min=1.0)
                 total_loss = total_loss + loss
             opt.zero_grad(set_to_none=True)
@@ -137,7 +143,7 @@ class GFormula(CausalEstimator):
             raise RuntimeError("GFormula must be fit before calling estimate.")
         device = self._device
         batch = data.to(device)
-        X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
+        X, A, T, Y, _M = batch.X, batch.A, batch.T, batch.Y, batch.mask
         seq_len = T.shape[1]
         t0 = int(t0)
         horizon = int(horizon)
@@ -159,10 +165,10 @@ class GFormula(CausalEstimator):
             inp = torch.cat([x_rep[:, t, :], a_feat[:, t, :], t_feat, y_prev], dim=-1)
             h, y_logit = self.model.step(inp, h)
             y_prob = torch.sigmoid(y_logit.view(-1))
+            # Condition on observed outcomes up to the intervention, then simulate history.
             if t < t0:
                 y_prev = Y[:, t].float().view(-1, 1)
             else:
-                # Roll history forward with predicted outcomes after intervention.
                 y_prev = y_prob.view(-1, 1)
             y_pred.append(y_prob)
 
@@ -226,7 +232,7 @@ class GFormula(CausalEstimator):
             raise RuntimeError("GFormula must be fit before calling estimate.")
         device = self._device
         batch = data.to(device)
-        X, A, Y, M = batch.X, batch.A, batch.Y, batch.mask
+        X, A, _Y, M = batch.X, batch.A, batch.Y, batch.mask
         seq_len = batch.T.shape[1]
         if horizon is None:
             horizon = seq_len - 1
@@ -254,7 +260,6 @@ class GFormula(CausalEstimator):
             inp = torch.cat([x_rep[:, t, :], a_feat[:, t, :], t_feat, y_prev], dim=-1)
             h, y_logit = self.model.step(inp, h)
             y_prob = torch.sigmoid(y_logit.view(-1))
-            # Policy evaluation uses predicted outcomes to update history.
             y_prev = y_prob.view(-1, 1)
             y_pred.append(y_prob)
 

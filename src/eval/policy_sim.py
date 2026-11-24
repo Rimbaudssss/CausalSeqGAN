@@ -25,19 +25,33 @@ def _rollout(gen, *, causal_only: bool, **kwargs):
 def main(argv: Optional[list[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Policy simulation on learned SCM generator")
     p.add_argument("--ckpt", type=str, required=True)
-    p.add_argument("--data_npz", type=str, required=True, help="Use (X,A) marginals from this dataset")
+    p.add_argument(
+        "--data_npz", type=str, required=True, help="Use (X,A) marginals from this dataset"
+    )
     p.add_argument("--out_csv", type=str, default="policy_sim.csv")
     p.add_argument("--device", type=str, default="auto")
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--num_actions", type=int, default=2)
-    p.add_argument("--cate", action="store_true", help="Compute subgroup CATE between two constant-action policies")
+    p.add_argument(
+        "--cate",
+        action="store_true",
+        help="Compute subgroup CATE between two constant-action policies",
+    )
     p.add_argument("--action_control", type=int, default=0)
     p.add_argument("--action_treated", type=int, default=1)
-    p.add_argument("--num_groups", type=int, default=2, help="Number of subgroups for CATE (quantiles on X)")
+    p.add_argument(
+        "--num_groups", type=int, default=2, help="Number of subgroups for CATE (quantiles on X)"
+    )
     p.add_argument("--x_index", type=int, default=0, help="Which X dimension to group by")
     args = p.parse_args(argv)
 
-    device_name = "cuda" if args.device == "auto" and torch.cuda.is_available() else "cpu" if args.device == "auto" else args.device
+    device_name = (
+        "cuda"
+        if args.device == "auto" and torch.cuda.is_available()
+        else "cpu"
+        if args.device == "auto"
+        else args.device
+    )
     device = torch.device(device_name)
 
     ckpt = torch.load(args.ckpt, map_location=device)
@@ -57,7 +71,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         with torch.no_grad():
             for batch in dl:
                 batch = move_batch(batch, device)
-                X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
+                X, A, _T, _Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
                 ro = _rollout(
                     gen,
                     causal_only=True,
@@ -102,16 +116,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         counts = torch.zeros(g, T_len, device=device)
 
         def group_id(x_scalar: torch.Tensor) -> torch.Tensor:
-            # edges: [g+1] increasing
-            # returns ids in [0,g-1]
-            # bucketize returns in [0,g] for boundaries; clamp to [0,g-1]
             idx = torch.bucketize(x_scalar, edges[1:-1].to(x_scalar.device), right=False)
             return idx.clamp(min=0, max=g - 1)
 
         with torch.no_grad():
             for batch in dl:
                 batch = move_batch(batch, device)
-                X, A, T, Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
+                X, A, _T, _Y, M = batch.X, batch.A, batch.T, batch.Y, batch.mask
 
                 gid = group_id(X[:, int(args.x_index)])  # [B]
                 ro_c = _rollout(

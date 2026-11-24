@@ -4,11 +4,11 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import torch
+import torch.nn.functional as F
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, roc_auc_score
 from sklearn.neighbors import NearestNeighbors
-import torch
-import torch.nn.functional as F
 
 from src.baselines import BaseSeqModel
 from src.data import TrajectoryBatch
@@ -386,12 +386,20 @@ def _fit_attack_classifier(
     class_weight: str | dict | None = "balanced",
 ) -> dict:
     if X_in.size == 0 or X_out.size == 0:
-        return {"attack_auc": float("nan"), "attack_acc": float("nan"), "attack_balanced_acc": float("nan")}
+        return {
+            "attack_auc": float("nan"),
+            "attack_acc": float("nan"),
+            "attack_balanced_acc": float("nan"),
+        }
 
     X = np.concatenate([X_in, X_out], axis=0)
     y = np.concatenate([np.ones(X_in.shape[0]), np.zeros(X_out.shape[0])], axis=0)
     if X.shape[0] < 2:
-        return {"attack_auc": float("nan"), "attack_acc": float("nan"), "attack_balanced_acc": float("nan")}
+        return {
+            "attack_auc": float("nan"),
+            "attack_acc": float("nan"),
+            "attack_balanced_acc": float("nan"),
+        }
 
     rng = np.random.default_rng(int(seed))
     idx = rng.permutation(X.shape[0])
@@ -447,15 +455,29 @@ def run_membership_inference(
         feats_in.append(_avg_confidence(gen_model, real_train))
         feats_out.append(_avg_confidence(gen_model, real_holdout))
     if "nn_distance" in attack_features:
-        feats_in.append(_nn_distance_feature(real_train, real_train, leave_one_out=True, embed_space=embed_space))
-        feats_out.append(_nn_distance_feature(real_train, real_holdout, leave_one_out=False, embed_space=embed_space))
+        feats_in.append(
+            _nn_distance_feature(
+                real_train, real_train, leave_one_out=True, embed_space=embed_space
+            )
+        )
+        feats_out.append(
+            _nn_distance_feature(
+                real_train, real_holdout, leave_one_out=False, embed_space=embed_space
+            )
+        )
     wb_feature_names = [f for f in attack_features if f.startswith("wb_") and f != "wb_grad_norm"]
     if wb_feature_names:
-        wb_in = _whitebox_per_sample_features(gen_model=gen_model, batch=real_train, feature_names=wb_feature_names, seed=int(seed))
-        wb_out = _whitebox_per_sample_features(gen_model=gen_model, batch=real_holdout, feature_names=wb_feature_names, seed=int(seed))
+        wb_in = _whitebox_per_sample_features(
+            gen_model=gen_model, batch=real_train, feature_names=wb_feature_names, seed=int(seed)
+        )
+        wb_out = _whitebox_per_sample_features(
+            gen_model=gen_model, batch=real_holdout, feature_names=wb_feature_names, seed=int(seed)
+        )
         for name in wb_feature_names:
             feats_in.append(wb_in.get(name, np.zeros((real_train.X.shape[0],), dtype=np.float32)))
-            feats_out.append(wb_out.get(name, np.zeros((real_holdout.X.shape[0],), dtype=np.float32)))
+            feats_out.append(
+                wb_out.get(name, np.zeros((real_holdout.X.shape[0],), dtype=np.float32))
+            )
     if "wb_grad_norm" in attack_features:
         gn_in = _whitebox_grad_norm(gen_model=gen_model, batch=real_train, seed=int(seed))
         gn_out = _whitebox_grad_norm(gen_model=gen_model, batch=real_holdout, seed=int(seed) + 1)
@@ -487,7 +509,9 @@ def run_synth_membership_inference(
     attack_features: List[str] | None = None,
 ) -> dict:
     feats_in = _nn_distance_feature(synth, real_train, leave_one_out=False, embed_space=embed_space)
-    feats_out = _nn_distance_feature(synth, real_holdout, leave_one_out=False, embed_space=embed_space)
+    feats_out = _nn_distance_feature(
+        synth, real_holdout, leave_one_out=False, embed_space=embed_space
+    )
 
     X_in = feats_in.reshape(-1, 1)
     X_out = feats_out.reshape(-1, 1)
@@ -496,7 +520,9 @@ def run_synth_membership_inference(
     return result
 
 
-def mia_to_dataframe(result: dict, *, model: str, dataset: str, attack_features: List[str], n_in: int, n_out: int) -> pd.DataFrame:
+def mia_to_dataframe(
+    result: dict, *, model: str, dataset: str, attack_features: List[str], n_in: int, n_out: int
+) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {

@@ -133,9 +133,13 @@ class HistoryEncoder(nn.Module):
         inp = self.inp(inp)
 
         lengths = mask.sum(dim=1).clamp(min=1).long().cpu()
-        packed = nn.utils.rnn.pack_padded_sequence(inp, lengths, batch_first=True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            inp, lengths, batch_first=True, enforce_sorted=False
+        )
         out_packed, _ = self.rnn(packed)
-        out, _ = nn.utils.rnn.pad_packed_sequence(out_packed, batch_first=True, total_length=seq_len)
+        out, _ = nn.utils.rnn.pad_packed_sequence(
+            out_packed, batch_first=True, total_length=seq_len
+        )
         return out  # [B, T, d_h]
 
 

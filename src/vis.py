@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -168,9 +167,7 @@ def plot_policy_values(
         df_m = df[df["model"] == model]
         if df_m.empty:
             continue
-        df_plot = (
-            df_m.groupby("policy", sort=False)[list(value_cols)].mean().reset_index()
-        )
+        df_plot = df_m.groupby("policy", sort=False)[list(value_cols)].mean().reset_index()
         policies = df_plot["policy"].astype(str).tolist()
         ref_vals = df_plot[value_cols[0]].to_numpy(dtype=np.float64)
         gen_vals = df_plot[value_cols[1]].to_numpy(dtype=np.float64)
@@ -223,15 +220,21 @@ def run_visualization(
     results_root = Path(results_dir)
     causal_effects_csv = results_root / "causal_effects.csv"
     if causal_effects_csv.exists():
-        plot_ate_cate_curves(str(causal_effects_csv), out_dir=out_dir, manifest=manifest, dataset=dataset)
+        plot_ate_cate_curves(
+            str(causal_effects_csv), out_dir=out_dir, manifest=manifest, dataset=dataset
+        )
 
     policy_values_csv = results_root / "policy_values.csv"
     if policy_values_csv.exists():
-        plot_policy_values(str(policy_values_csv), out_dir=out_dir, manifest=manifest, dataset=dataset)
+        plot_policy_values(
+            str(policy_values_csv), out_dir=out_dir, manifest=manifest, dataset=dataset
+        )
     else:
         dr_policy_values_csv = results_root / "dr_policy_values.csv"
         if dr_policy_values_csv.exists():
-            plot_policy_values(str(dr_policy_values_csv), out_dir=out_dir, manifest=manifest, dataset=dataset)
+            plot_policy_values(
+                str(dr_policy_values_csv), out_dir=out_dir, manifest=manifest, dataset=dataset
+            )
 
     calib_dir = results_root / "calibration"
     if plot_calibration and calib_dir.exists():

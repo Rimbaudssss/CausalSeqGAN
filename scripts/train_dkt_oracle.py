@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# Allow running as a script (e.g., `python scripts/train_dkt_oracle.py`) from repo root.
+
 if __package__ in (None, ""):
     _repo_root = Path(__file__).resolve().parents[1]
     if str(_repo_root) not in sys.path:
@@ -94,8 +94,8 @@ def _split_indices(n: int, val_ratio: float, seed: int) -> tuple[np.ndarray, np.
 
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Train a DKT LSTM oracle from NPZSequenceDataset.")
-    ap.add_argument("--data_npz", type=str, default="DataSet/assist2009/assist09_processed.npz")
-    ap.add_argument("--out", type=str, default="runs/dkt_oracle.pt")
+    ap.add_argument("--data_npz", type=str, default="data/assist09.npz")
+    ap.add_argument("--out", type=str, default="checkpoints/dkt_oracle.pt")
     ap.add_argument("--device", type=str, default="auto")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=100)
@@ -108,8 +108,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--hidden_dim", type=int, default=128)
     ap.add_argument("--num_layers", type=int, default=1)
     ap.add_argument("--dropout", type=float, default=0.0)
-    ap.add_argument("--n_skills", type=int, default=0, help="Override skill vocab size (default uses dataset)")
-    ap.add_argument("--d_x", type=int, default=0, help="Override static feature dim (default uses dataset)")
+    ap.add_argument(
+        "--n_skills", type=int, default=0, help="Override skill vocab size (default uses dataset)"
+    )
+    ap.add_argument(
+        "--d_x", type=int, default=0, help="Override static feature dim (default uses dataset)"
+    )
     args, _unknown = ap.parse_known_args(argv)
 
     torch.manual_seed(int(args.seed))
@@ -123,8 +127,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     train_ds = torch.utils.data.Subset(ds, train_idx.tolist())
     val_ds = torch.utils.data.Subset(ds, val_idx.tolist()) if len(val_idx) > 0 else None
 
-    train_dl = make_dataloader(train_ds, batch_size=int(args.batch_size), shuffle=True, num_workers=0)
-    val_dl = make_dataloader(val_ds, batch_size=int(args.batch_size), shuffle=False, num_workers=0) if val_ds else None
+    train_dl = make_dataloader(
+        train_ds, batch_size=int(args.batch_size), shuffle=True, num_workers=0
+    )
+    val_dl = (
+        make_dataloader(val_ds, batch_size=int(args.batch_size), shuffle=False, num_workers=0)
+        if val_ds
+        else None
+    )
 
     model = LSTMDKTOracle(
         n_skills=n_skills,
@@ -135,7 +145,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         dropout=float(args.dropout),
     ).to(device)
 
-    opt = torch.optim.Adam(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))
+    opt = torch.optim.Adam(
+        model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay)
+    )
 
     def run_epoch(dl, training: bool) -> float:
         model.train(training)
@@ -155,7 +167,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
                 if float(args.max_grad_norm) > 0.0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=float(args.max_grad_norm))
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=float(args.max_grad_norm)
+                    )
                 opt.step()
 
             total += float(loss.item())
@@ -169,7 +183,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     for ep in range(1, int(args.epochs) + 1):
         train_loss = run_epoch(train_dl, training=True)
         val_loss = run_epoch(val_dl, training=False) if val_dl else float("nan")
-        print(f"Epoch {ep}/{int(args.epochs)} | train_loss {train_loss:.4f} | val_loss {val_loss:.4f}")
+        print(
+            f"Epoch {ep}/{int(args.epochs)} | train_loss {train_loss:.4f} | val_loss {val_loss:.4f}"
+        )
 
         if val_dl is None or val_loss < best_val:
             best_val = val_loss if val_dl else train_loss

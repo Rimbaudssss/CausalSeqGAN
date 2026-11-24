@@ -7,12 +7,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from baselines.timegan import TimeGAN, TimeGANConfig
+from src.config import CAUSALSEQGAN_ID, CAUSALSEQGAN_NAME
+from src.model.timegan import TimeGAN, TimeGANConfig
 
+from .causalseqgan import CausalSeqGAN
 from .discriminators import SequenceDiscriminator, SequenceDiscriminatorConfig
 from .losses import bernoulli_nll_from_logits, grad_reverse, masked_mean
 from .policy import Policy
-from .scm_generator import SCMGenerator, SCMGeneratorConfig
 
 
 def _ensure_3d_y(y: torch.Tensor) -> torch.Tensor:
@@ -104,8 +105,15 @@ class RCGANGenerator(nn.Module):
             mask = torch.ones(bsz, seq_len, device=x.device)
         if eps is None:
             eps = torch.randn(bsz, seq_len, self.cfg.d_eps, device=x.device)
-        if eps.ndim != 3 or eps.shape[0] != bsz or eps.shape[1] != seq_len or eps.shape[2] != self.cfg.d_eps:
-            raise ValueError(f"eps must be [B,T,d_eps]=[{bsz},{seq_len},{self.cfg.d_eps}], got {tuple(eps.shape)}")
+        if (
+            eps.ndim != 3
+            or eps.shape[0] != bsz
+            or eps.shape[1] != seq_len
+            or eps.shape[2] != self.cfg.d_eps
+        ):
+            raise ValueError(
+                f"eps must be [B,T,d_eps]=[{bsz},{seq_len},{self.cfg.d_eps}], got {tuple(eps.shape)}"
+            )
 
         state = self._init_state(x, eps0=eps[:, 0, :])
         prev_y = torch.zeros(bsz, 1, device=x.device)
@@ -169,8 +177,15 @@ class RCGANGenerator(nn.Module):
             mask = torch.ones(bsz, steps, device=x.device)
         if eps is None:
             eps = torch.randn(bsz, steps, self.cfg.d_eps, device=x.device)
-        if eps.ndim != 3 or eps.shape[0] != bsz or eps.shape[1] < steps or eps.shape[2] != self.cfg.d_eps:
-            raise ValueError(f"eps must be [B,>=T,d_eps]=[{bsz},>={steps},{self.cfg.d_eps}], got {tuple(eps.shape)}")
+        if (
+            eps.ndim != 3
+            or eps.shape[0] != bsz
+            or eps.shape[1] < steps
+            or eps.shape[2] != self.cfg.d_eps
+        ):
+            raise ValueError(
+                f"eps must be [B,>=T,d_eps]=[{bsz},>={steps},{self.cfg.d_eps}], got {tuple(eps.shape)}"
+            )
 
         state = self._init_state(x, eps0=eps[:, 0, :])
         prev_y = torch.zeros(bsz, 1, device=x.device)
@@ -294,7 +309,15 @@ class SeqVAE(nn.Module):
             return self.t_emb(t_t.long())
         return self.t_emb(t_t.float())
 
-    def encode(self, *, x: torch.Tensor, a: torch.Tensor, t: torch.Tensor, y: torch.Tensor, mask: torch.Tensor):
+    def encode(
+        self,
+        *,
+        x: torch.Tensor,
+        a: torch.Tensor,
+        t: torch.Tensor,
+        y: torch.Tensor,
+        mask: torch.Tensor,
+    ):
         bsz, seq_len = a.shape[0], a.shape[1]
         x_rep = self.x_proj(x.float())[:, None, :].expand(bsz, seq_len, x.shape[1])
         a_enc = self.encode_a(a.view(-1, *a.shape[2:])).view(bsz, seq_len, -1)
@@ -304,7 +327,9 @@ class SeqVAE(nn.Module):
         inp = self.enc_in(inp)
 
         lengths = mask.sum(dim=1).clamp(min=1).long().cpu()
-        packed = nn.utils.rnn.pack_padded_sequence(inp, lengths, batch_first=True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            inp, lengths, batch_first=True, enforce_sorted=False
+        )
         _, h_n = self.encoder(packed)
         h = torch.cat([h_n[0], h_n[1]], dim=-1)
         mu = self.z_mu(h)
@@ -377,7 +402,9 @@ class SeqVAE(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         mu, logvar = self.encode(x=x, a=a, t=t, y=y, mask=mask)
         z = self.reparameterize(mu, logvar)
-        dec = self.decode(x=x, a=a, t=t, mask=mask, z=z, y=y, teacher_forcing=True, stochastic_y=False)
+        dec = self.decode(
+            x=x, a=a, t=t, mask=mask, z=z, y=y, teacher_forcing=True, stochastic_y=False
+        )
         recon = bernoulli_nll_from_logits(dec["y_logits"], y, mask=mask)
         kl = 0.5 * (mu.pow(2) + logvar.exp() - 1.0 - logvar).sum(dim=-1).mean()
         loss = recon + float(kl_weight) * kl
@@ -423,7 +450,16 @@ class SeqVAE(nn.Module):
                     if 0 <= int(ti) < steps:
                         t_used[:, int(ti)] = val
 
-        dec = self.decode(x=x, a=a[:, :steps], t=t_used, mask=mask, z=z, y=None, teacher_forcing=False, stochastic_y=stochastic_y)
+        dec = self.decode(
+            x=x,
+            a=a[:, :steps],
+            t=t_used,
+            mask=mask,
+            z=z,
+            y=None,
+            teacher_forcing=False,
+            stochastic_y=stochastic_y,
+        )
         return {"y_logits": dec["y_logits"], "y": dec["y"], "t": t_used}
 
 
@@ -554,7 +590,9 @@ class SeqDiffusion(nn.Module):
         a_enc = self.encode_a(a.view(-1, *a.shape[2:])).view(bsz, seq_len, -1)
         t_enc = self.encode_t(t.view(-1, *t.shape[2:])).view(bsz, seq_len, -1)
         y_noisy = _ensure_3d_y(y_noisy).float()
-        t_emb = self.time_emb(timesteps.long())[:, None, :].expand(bsz, seq_len, self.cfg.time_emb_dim)
+        t_emb = self.time_emb(timesteps.long())[:, None, :].expand(
+            bsz, seq_len, self.cfg.time_emb_dim
+        )
 
         inp = torch.cat([y_noisy, x_rep, a_enc, t_enc, t_emb], dim=-1)
         if self.cfg.backbone == "mlp":
@@ -596,7 +634,11 @@ class SeqDiffusion(nn.Module):
         eps: Optional[torch.Tensor] = None,  # [B,T,y_dim]
     ) -> torch.Tensor:
         bsz, seq_len = a.shape[0], a.shape[1]
-        y = torch.randn(bsz, seq_len, self.cfg.y_dim, device=x.device) if eps is None else eps.clone()
+        y = (
+            torch.randn(bsz, seq_len, self.cfg.y_dim, device=x.device)
+            if eps is None
+            else eps.clone()
+        )
 
         for step in reversed(range(self.cfg.num_steps)):
             ts = torch.full((bsz,), step, device=x.device, dtype=torch.long)
@@ -651,6 +693,7 @@ class SeqDiffusion(nn.Module):
             t_used = t_used.long() if self.cfg.t_is_discrete else t_used.float()
 
         if do_t is not None:
+
             def _coerce_action(val: object) -> torch.Tensor:
                 if isinstance(val, torch.Tensor):
                     v = val.to(x.device)
@@ -808,7 +851,9 @@ class CRN(nn.Module):
         loss_y = bernoulli_nll_from_logits(out["y_logits"], y, mask=mask)
 
         bsz, seq_len, num_actions = out["t_logits"].shape
-        ce = F.cross_entropy(out["t_logits"].view(bsz * seq_len, num_actions), t.view(-1).long(), reduction="none")
+        ce = F.cross_entropy(
+            out["t_logits"].view(bsz * seq_len, num_actions), t.view(-1).long(), reduction="none"
+        )
         ce = ce.view(bsz, seq_len)
         loss_t = masked_mean(ce, mask)
 
@@ -910,29 +955,23 @@ def build_discriminator_from_meta(
     return disc_cfg, SequenceDiscriminator(disc_cfg)
 
 
-def load_rollout_model_from_checkpoint(ckpt: dict, *, device: torch.device) -> Tuple[nn.Module, str]:
-    # Legacy SCM checkpoints from src/train.py
-    if "model" not in ckpt and "gen_cfg" in ckpt:
-        cfg_dict = dict(ckpt["gen_cfg"])
-        cfg_dict.setdefault("k_c_ratio", 1.0)
-        cfg = SCMGeneratorConfig(**cfg_dict)
-        model = SCMGenerator(cfg).to(device)
-        model.load_state_dict(ckpt["gen"], strict=False)
-        model.eval()
-        return model, "scm"
+def load_rollout_model_from_checkpoint(
+    ckpt: dict, *, device: torch.device
+) -> Tuple[nn.Module, str]:
+    if "configuration" in ckpt and "generator" in ckpt:
+        return CausalSeqGAN.from_checkpoint(ckpt, device=device), CAUSALSEQGAN_NAME
 
-    model_name = str(ckpt.get("model", "scm"))
+    model_name = str(ckpt.get("model", CAUSALSEQGAN_ID))
     cfg_dict = ckpt.get("model_cfg") or ckpt.get("gen_cfg") or ckpt.get("cfg")
     state = ckpt.get("model_state") or ckpt.get("gen") or ckpt.get("state_dict")
     if cfg_dict is None or state is None:
         raise ValueError("Checkpoint missing model config/state.")
 
-    is_scm_model = model_name in {"scm", "scm_fidelity", "scm_causal"} or model_name.startswith("scm_causal_wo_")
-    if is_scm_model:
+    if model_name.casefold() in {CAUSALSEQGAN_NAME.casefold(), CAUSALSEQGAN_ID}:
         cfg_dict = dict(cfg_dict)
         cfg_dict.setdefault("k_c_ratio", 1.0)
-        cfg = SCMGeneratorConfig(**cfg_dict)
-        model = SCMGenerator(cfg).to(device)
+        payload = {"configuration": cfg_dict, "generator": state}
+        return CausalSeqGAN.from_checkpoint(payload, device=device), CAUSALSEQGAN_NAME
     elif model_name == "rcgan":
         cfg = RCGANConfig(**cfg_dict)
         model = RCGANGenerator(cfg).to(device)
@@ -951,10 +990,8 @@ def load_rollout_model_from_checkpoint(ckpt: dict, *, device: torch.device) -> T
     else:
         raise ValueError(f"Unknown model={model_name}")
 
-    strict = not is_scm_model
-    model.load_state_dict(state, strict=strict)
+    model.load_state_dict(state, strict=True)
     if model_name == "timegan":
-        # Optional: attach generation helpers without pushing large tensors to GPU.
         if "reservoir" in ckpt and getattr(model, "_reservoir", None) is None:
             res = ckpt["reservoir"]
             if isinstance(res, dict):

@@ -9,17 +9,9 @@ import torch
 
 from ..data import NPZSequenceDataset, make_dataloader, move_batch
 from ..model.baselines import load_rollout_model_from_checkpoint
+from ..model.causalseqgan import CausalSeqGAN
 from ..model.losses import mmd_rbf
 from ..model.policy import DoIntervention
-
-
-def _rollout(gen, *, causal_only: bool, **kwargs):
-    if causal_only and hasattr(gen, "d_k_c"):
-        try:
-            return gen.rollout(**kwargs, causal_only=True)
-        except TypeError:
-            pass
-    return gen.rollout(**kwargs)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -31,17 +23,24 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--time_indices", type=str, default="0,5,10")
     p.add_argument("--actions", type=str, default="0,1")
-    p.add_argument("--mmd_xy", action="store_true", help="Also report MMD over features (X, Y) per arm")
+    p.add_argument(
+        "--mmd_xy", action="store_true", help="Also report MMD over features (X, Y) per arm"
+    )
     args = p.parse_args(argv)
 
-    device = torch.device("cuda" if args.device == "auto" and torch.cuda.is_available() else args.device)
+    device = torch.device(
+        "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
+    )
 
     ckpt = torch.load(args.ckpt, map_location=device)
-    gen, model_name = load_rollout_model_from_checkpoint(ckpt, device=device)
+    gen, _ = load_rollout_model_from_checkpoint(ckpt, device=device)
+    rollout_args = {"causal_only": True} if isinstance(gen, CausalSeqGAN) else {}
 
     t_is_discrete = bool(getattr(getattr(gen, "cfg", None), "t_is_discrete", True))
     if not t_is_discrete:
-        raise ValueError("interventional_eval currently assumes discrete actions T (t_is_discrete=True).")
+        raise ValueError(
+            "interventional_eval currently assumes discrete actions T (t_is_discrete=True)."
+        )
 
     ds = NPZSequenceDataset(args.data_npz)
     dl = make_dataloader(ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
@@ -72,16 +71,17 @@ def main(argv: Optional[list[str]] = None) -> int:
                         sum_real += float(y_real.sum().item())
                         num_real += int(sel.sum().item())
 
-                    do = DoIntervention.single_step(t_idx, a_val).as_dict(batch_size=X.shape[0], device=device)
-                    ro = _rollout(
-                        gen,
-                        causal_only=str(model_name).startswith("scm"),
+                    do = DoIntervention.single_step(t_idx, a_val).as_dict(
+                        batch_size=X.shape[0], device=device
+                    )
+                    ro = gen.rollout(
                         x=X,
                         a=A,
                         t_obs=T,
                         do_t=do,
                         mask=M,
                         stochastic_y=False,
+                        **rollout_args,
                     )
                     y_do = ro["y"][:, t_idx].view(-1).float()
                     sum_gen += float(y_do.sum().item())
@@ -89,7 +89,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
                     if args.mmd_xy and sel.any():
                         # Feature-level distance to reflect heterogeneity beyond mean Y.
-                        feat_real = torch.cat([X[sel].float(), Y[sel, t_idx].float().view(-1, 1)], dim=-1)
+                        feat_real = torch.cat(
+                            [X[sel].float(), Y[sel, t_idx].float().view(-1, 1)], dim=-1
+                        )
                         valid = M[:, t_idx] > 0.5
                         feat_gen = torch.cat([X[valid].float(), y_do[valid].view(-1, 1)], dim=-1)
                         mmd_sum += float(mmd_rbf(feat_real, feat_gen).item())

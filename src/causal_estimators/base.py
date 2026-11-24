@@ -11,7 +11,9 @@ from src.policy import Policy
 class CausalEstimator:
     name: str = "base"
 
-    def fit(self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs) -> None:
+    def fit(
+        self, train: TrajectoryBatch, valid: Optional[TrajectoryBatch] = None, **kwargs
+    ) -> None:
         raise NotImplementedError
 
     def estimate_do(

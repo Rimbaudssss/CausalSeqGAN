@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Tuple
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def brier_score(y_true: np.ndarray, y_prob: np.ndarray) -> float:

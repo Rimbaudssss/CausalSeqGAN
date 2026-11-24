@@ -95,7 +95,9 @@ class SequenceDiscriminator(nn.Module):
             mask = torch.ones(bsz, seq_len, device=seq.device)
 
         lengths = mask.sum(dim=1).clamp(min=1).long().cpu()
-        packed = nn.utils.rnn.pack_padded_sequence(seq, lengths, batch_first=True, enforce_sorted=False)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            seq, lengths, batch_first=True, enforce_sorted=False
+        )
         _, h_n = self.rnn(packed)
         h_last = h_n[-1]  # [B, d_h]
         h_last = self.ln(h_last)

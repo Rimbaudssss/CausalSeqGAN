@@ -1,5 +1,3 @@
-from .scm_generator import SCMGenerator, SCMGeneratorConfig
-from .policy import ConstantPolicy, DoIntervention, Policy, RandomPolicy
 from .baselines import (
     CRN,
     CRNConfig,
@@ -12,11 +10,16 @@ from .baselines import (
     TimeGAN,
     TimeGANConfig,
 )
+from .causalseqgan import CausalSeqGAN, CausalSeqGANConfig
 from .discriminators import SequenceDiscriminator, SequenceDiscriminatorConfig
+from .effect_head import CausalSeqGANEffectHead, EffectHeadConfig
+from .policy import ConstantPolicy, DoIntervention, Policy, RandomPolicy
 
 __all__ = [
-    "SCMGenerator",
-    "SCMGeneratorConfig",
+    "CausalSeqGAN",
+    "CausalSeqGANConfig",
+    "CausalSeqGANEffectHead",
+    "EffectHeadConfig",
     "DoIntervention",
     "Policy",
     "RandomPolicy",

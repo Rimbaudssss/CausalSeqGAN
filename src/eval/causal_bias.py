@@ -31,7 +31,7 @@ def compute_causal_bias(
     seed: int = 0,
     policy_set: str = "fixed",
 ) -> Tuple[pd.DataFrame, Dict]:
-    rng = np.random.default_rng(int(seed))
+    np.random.default_rng(int(seed))
     rows = []
     seq_len = int(data.T.shape[1])
     horizon = int(horizon)
@@ -63,7 +63,9 @@ def compute_causal_bias(
                 gen_samples = []
                 for _ in range(int(n_gen)):
                     do_t = {t0: int(action)}
-                    ro = gen_model.rollout(data, do_t=do_t, horizon=horizon, t0=t0, teacher_forcing=False)
+                    ro = gen_model.rollout(
+                        data, do_t=do_t, horizon=horizon, t0=t0, teacher_forcing=False
+                    )
                     y_prob = ro["Y_prob"].detach().cpu().numpy()
                     m = ro["mask"].detach().cpu().numpy()
                     y_slice = y_prob[:, t0 : t0 + horizon + 1]
@@ -86,7 +88,9 @@ def compute_causal_bias(
                 for h in range(horizon + 1):
                     row[f"ref_mu_{h}"] = float(ref_mu[h]) if h < len(ref_mu) else np.nan
                     row[f"ref_ci_low_{h}"] = float(ref_ci_low[h]) if h < len(ref_ci_low) else np.nan
-                    row[f"ref_ci_high_{h}"] = float(ref_ci_high[h]) if h < len(ref_ci_high) else np.nan
+                    row[f"ref_ci_high_{h}"] = (
+                        float(ref_ci_high[h]) if h < len(ref_ci_high) else np.nan
+                    )
                     row[f"gen_mu_{h}"] = float(gen_mu[h]) if h < len(gen_mu) else np.nan
                     row[f"gen_std_{h}"] = float(gen_std[h]) if h < len(gen_std) else np.nan
                 rows.append(row)
@@ -129,7 +133,7 @@ def compute_causal_bias(
             if not err_list:
                 return float("nan"), float("nan")
             err = np.concatenate(err_list, axis=None)
-            return float(np.nanmean(err)), float(np.sqrt(np.nanmean(err ** 2)))
+            return float(np.nanmean(err)), float(np.sqrt(np.nanmean(err**2)))
 
         ate_mae, ate_rmse = _agg(ate_errors)
         cate_mae, _ = _agg(cate_errors)
@@ -144,7 +148,9 @@ def compute_causal_bias(
     policy_supported = True
     policy_skip_reason = ""
     for policy in policies:
-        ref_out = ref_estimator.estimate_policy_value(data, policy=policy, horizon=horizon, n_boot=200, seed=seed)
+        ref_out = ref_estimator.estimate_policy_value(
+            data, policy=policy, horizon=horizon, n_boot=200, seed=seed
+        )
         ref_vals.append(float(ref_out.get("value", np.nan)))
 
         try:
@@ -153,7 +159,9 @@ def compute_causal_bias(
             m = ro["mask"].detach().cpu().numpy()
             y_slice = y[:, : horizon + 1]
             m_slice = m[:, : horizon + 1]
-            val = float(np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1))))
+            val = float(
+                np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1)))
+            )
         except Exception as e:
             policy_supported = False
             if not policy_skip_reason:
@@ -197,7 +205,9 @@ def compute_policy_values(
     policy_skip_reason = ""
 
     for policy in policies:
-        ref_out = ref_estimator.estimate_policy_value(data, policy=policy, horizon=horizon, n_boot=n_boot, seed=seed)
+        ref_out = ref_estimator.estimate_policy_value(
+            data, policy=policy, horizon=horizon, n_boot=n_boot, seed=seed
+        )
         ref_value = float(ref_out.get("value", np.nan))
         ref_ci_low = float(ref_out.get("ci_low", np.nan))
         ref_ci_high = float(ref_out.get("ci_high", np.nan))
@@ -211,7 +221,9 @@ def compute_policy_values(
             m = ro["mask"].detach().cpu().numpy()
             y_slice = y[:, : horizon + 1]
             m_slice = m[:, : horizon + 1]
-            gen_value = float(np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1))))
+            gen_value = float(
+                np.nanmean((y_slice * m_slice).sum(axis=1) / np.maximum(1.0, m_slice.sum(axis=1)))
+            )
         except Exception as e:
             supported = 0.0
             policy_supported = False

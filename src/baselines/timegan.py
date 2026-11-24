@@ -5,9 +5,9 @@ from typing import Optional
 
 import torch
 
-from baselines.timegan import TimeGAN, TimeGANConfig, TimeGANTrainConfig, fit_timegan
 from src.baselines import BaseSeqModel
 from src.data import TrajectoryBatch
+from src.model.timegan import TimeGAN, TimeGANConfig, TimeGANTrainConfig, fit_timegan
 from src.policy import Policy
 
 
@@ -30,9 +30,19 @@ class _TrainConfig:
 class TimeGANModel(BaseSeqModel):
     name = "timegan"
 
-    def __init__(self, *, hidden_dim: int = 64, num_layers: int = 2, noise_dim: int = 16, lr: float = 1e-3, **kwargs):
+    def __init__(
+        self,
+        *,
+        hidden_dim: int = 64,
+        num_layers: int = 2,
+        noise_dim: int = 16,
+        lr: float = 1e-3,
+        **kwargs,
+    ):
         super().__init__(name="timegan")
-        self.cfg = _TrainConfig(hidden_dim=hidden_dim, num_layers=num_layers, noise_dim=noise_dim, lr=lr, **kwargs)
+        self.cfg = _TrainConfig(
+            hidden_dim=hidden_dim, num_layers=num_layers, noise_dim=noise_dim, lr=lr, **kwargs
+        )
         self.model: Optional[TimeGAN] = None
         self.device = torch.device("cpu")
 
@@ -44,7 +54,9 @@ class TimeGANModel(BaseSeqModel):
             d_x=int(train.X.shape[1]),
             seq_len=int(train.T.shape[1]),
             a_is_discrete=train.A.ndim == 2,
-            a_vocab_size=int(train.A.max().item() + 1) if train.A.ndim == 2 else int(train.A.shape[2]),
+            a_vocab_size=int(train.A.max().item() + 1)
+            if train.A.ndim == 2
+            else int(train.A.shape[2]),
             a_emb_dim=32,
             d_a=1 if train.A.ndim == 2 else int(train.A.shape[2]),
             t_is_discrete=True,
@@ -76,9 +88,17 @@ class TimeGANModel(BaseSeqModel):
 
         def collate(batch):
             X, A, T, Y, M = zip(*batch)
-            return {"X": torch.stack(X), "A": torch.stack(A), "T": torch.stack(T), "Y": torch.stack(Y), "mask": torch.stack(M)}
+            return {
+                "X": torch.stack(X),
+                "A": torch.stack(A),
+                "T": torch.stack(T),
+                "Y": torch.stack(Y),
+                "mask": torch.stack(M),
+            }
 
-        dl = torch.utils.data.DataLoader(dataset, batch_size=128, shuffle=True, drop_last=True, collate_fn=collate)
+        dl = torch.utils.data.DataLoader(
+            dataset, batch_size=128, shuffle=True, drop_last=True, collate_fn=collate
+        )
         fit_timegan(self.model, dl, device=device, train_cfg=train_cfg)
 
     @torch.no_grad()
@@ -199,7 +219,9 @@ class TimeGANModel(BaseSeqModel):
                 act = act.to(self.device).long()
             t_used[:, t] = act
 
-            ro = self.model.rollout(x=X, a=A, t_obs=t_used, mask=mask, steps=t + 1, stochastic_y=False)
+            ro = self.model.rollout(
+                x=X, a=A, t_obs=t_used, mask=mask, steps=t + 1, stochastic_y=False
+            )
             y_prefix = _squeeze_y(ro["y"]).float()
             y_prob[:, t] = y_prefix[:, t]
             if return_logits and y_logit is not None:
@@ -209,7 +231,9 @@ class TimeGANModel(BaseSeqModel):
                     y_logit[:, t] = _prob_to_logit(y_prefix[:, t])
 
         if end < seq_len:
-            ro = self.model.rollout(x=X, a=A, t_obs=t_used, mask=mask, steps=seq_len, stochastic_y=False)
+            ro = self.model.rollout(
+                x=X, a=A, t_obs=t_used, mask=mask, steps=seq_len, stochastic_y=False
+            )
             y_full = _squeeze_y(ro["y"]).float()
             y_prob[:, end:] = y_full[:, end:]
             if return_logits and y_logit is not None:

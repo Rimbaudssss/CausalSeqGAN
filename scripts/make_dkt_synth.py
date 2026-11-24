@@ -33,7 +33,9 @@ class LSTMDKTOracle(nn.Module):
         c = torch.tanh(self.c0(x.float())).unsqueeze(0)
         return h, c
 
-    def forward(self, input_seq: torch.Tensor, hidden: tuple[torch.Tensor, torch.Tensor] | None = None):
+    def forward(
+        self, input_seq: torch.Tensor, hidden: tuple[torch.Tensor, torch.Tensor] | None = None
+    ):
         emb = self.embedding(input_seq)
         out, hidden = self.lstm(emb, hidden)
         logits = self.out(out)
@@ -57,8 +59,12 @@ def build_open_loop_policies(seq_len: int) -> tuple[np.ndarray, np.ndarray]:
     names = [b"never", b"always", b"early_on", b"late_on"]
     never = np.zeros(seq_len, dtype=np.int64)
     always = np.ones(seq_len, dtype=np.int64)
-    early_on = np.concatenate([np.ones(t_switch, dtype=np.int64), np.zeros(seq_len - t_switch, dtype=np.int64)])
-    late_on = np.concatenate([np.zeros(t_switch, dtype=np.int64), np.ones(seq_len - t_switch, dtype=np.int64)])
+    early_on = np.concatenate(
+        [np.ones(t_switch, dtype=np.int64), np.zeros(seq_len - t_switch, dtype=np.int64)]
+    )
+    late_on = np.concatenate(
+        [np.zeros(t_switch, dtype=np.int64), np.ones(seq_len - t_switch, dtype=np.int64)]
+    )
     T = np.stack([never, always, early_on, late_on], axis=0)
     return np.array(names, dtype="S"), T
 
@@ -230,7 +236,9 @@ def _iter_t0(seq_len: int, t0_list: Iterable[int] | None) -> list[int]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=str, default=None, help="Output .npz path")
-    ap.add_argument("--oracle_path", type=str, default=None, help="Path to pretrained DKT LSTM weights")
+    ap.add_argument(
+        "--oracle_path", type=str, default=None, help="Path to pretrained DKT LSTM weights"
+    )
     ap.add_argument("--n", type=int, default=20000)
     ap.add_argument("--seq_len", type=int, default=50)
     ap.add_argument("--d_x", type=int, default=8)
@@ -248,31 +256,31 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", type=str, default="auto")
     ap.add_argument("--batch_size", type=int, default=2048)
-    ap.add_argument("--oracle_strict", action="store_true", help="Require exact oracle checkpoint match")
-    ap.add_argument("--oracle_use_cfg", action="store_true", help="Use model_cfg from oracle checkpoint if present")
+    ap.add_argument(
+        "--oracle_strict", action="store_true", help="Require exact oracle checkpoint match"
+    )
+    ap.add_argument(
+        "--oracle_use_cfg",
+        action="store_true",
+        help="Use model_cfg from oracle checkpoint if present",
+    )
     ap.add_argument("--with_oracle", action="store_true", help="Also compute Y_cf and Y_policy")
     ap.add_argument("--hmax", type=int, default=29, help="Max horizon for oracle Y_cf")
     ap.add_argument("--cf_t0_list", type=str, default="0,5,10", help="t0 indices for oracle Y_cf")
     args, _unknown = ap.parse_known_args(argv)
     auto_defaults = False
     if not args.out or not args.oracle_path:
-        repo_root = Path(__file__).resolve().parents[1]
+        repo_root = Path.cwd()
         if not args.out:
-            args.out = str(repo_root / "DataSet/irt_synth/dkt_synth.npz")
+            args.out = str(repo_root / "data/dkt_synth.npz")
             auto_defaults = True
         if not args.oracle_path:
-            args.oracle_path = str(repo_root / "runs/dkt_oracle.pt")
+            args.oracle_path = str(repo_root / "checkpoints/dkt_oracle.pt")
             auto_defaults = True
-        print(f"NOTE: defaulting --out to {args.out}")
-        print(f"NOTE: defaulting --oracle_path to {args.oracle_path}")
 
     if auto_defaults:
-        if not args.with_oracle:
-            args.with_oracle = True
-            print("NOTE: enabling --with_oracle for default run.")
-        if not args.oracle_use_cfg:
-            args.oracle_use_cfg = True
-            print("NOTE: enabling --oracle_use_cfg for default run.")
+        args.with_oracle = True
+        args.oracle_use_cfg = True
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

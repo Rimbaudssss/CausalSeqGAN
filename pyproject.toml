@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causalseqgan"
+version = "0.1.0"
+description = "Structural student trajectory generation and intervention-effect evaluation"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+causalseqgan = "src.main:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src", "src.*", "scripts", "scripts.*", "configs"]
+
+[tool.setuptools.package-data]
+configs = ["*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F", "I"]
